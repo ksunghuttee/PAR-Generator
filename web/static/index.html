@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PAR Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Karla:wght@400;500;600;700&family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23083332'/%3E%3Cpath d='M9 22V10h6.5a4 4 0 0 1 0 8H9' fill='none' stroke='%2339ff99' stroke-width='3'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar__inner">
+      <a class="brand" href="/">
+        <span class="brand__mark" aria-hidden="true">P</span>
+        <span class="brand__name">PAR Generator</span>
+      </a>
+      <span class="topbar__tag">Performance Analysis Review</span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="wrap hero__inner">
+      <div class="hero__copy">
+        <p class="eyebrow">Findings → Report → Restitution</p>
+        <h1>Turn the findings workbook into the report and the deck.</h1>
+        <p class="lede">Upload the PAR findings Excel. Check the data, set the priorities, and download the branded Word
+          report and PowerPoint restitution — with every data-driven section already written.</p>
+        <ol class="steps" aria-label="Steps">
+          <li class="is-active" data-step="1"><span>1</span>Upload</li>
+          <li data-step="2"><span>2</span>Review</li>
+          <li data-step="3"><span>3</span>Generate</li>
+        </ol>
+      </div>
+
+      <label class="drop" id="drop" for="file">
+        <input type="file" id="file" accept=".xlsx,.xlsm" hidden>
+        <svg class="drop__icon" viewBox="0 0 48 48" aria-hidden="true"><path d="M14 6h14l10 10v26H14z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M28 6v10h10M20 26l4-4 4 4M24 22v12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <strong class="drop__title" id="dropTitle">Drop the findings workbook here</strong>
+        <span class="drop__hint" id="dropHint">or <u>browse</u> for an .xlsx file — the <em>Findings</em> tab is read, plus <em>Feasibility-Gain</em> if present</span>
+        <span class="drop__privacy">Processed in memory. Nothing is stored.</span>
+      </label>
+    </div>
+  </section>
+
+  <div class="alert wrap" id="error" role="alert" hidden></div>
+
+  <main class="wrap workspace" id="workspace" hidden>
+    <div class="main-col">
+      <section class="card">
+        <div class="card__head">
+          <h2>Overview</h2>
+          <span class="chip" id="fileChip"></span>
+        </div>
+        <div class="kpis" id="kpis"></div>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <h2>Data checks</h2>
+          <span class="muted" id="checkCount"></span>
+        </div>
+        <ul class="checks" id="checks"></ul>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <h2>Prioritisation</h2>
+          <span class="muted">Feeds the matrix, quick wins and top-item slides</span>
+        </div>
+        <div class="prio">
+          <div class="prio__inputs">
+            <label class="field"><span>Expected value threshold</span>
+              <input type="number" id="vt" value="10" step="1"></label>
+            <label class="field"><span>Feasibility threshold</span>
+              <input type="number" id="ft" value="10" step="1"></label>
+            <label class="field"><span>Top items to detail</span>
+              <input type="number" id="topn" value="15" min="1" max="40" step="1"></label>
+          </div>
+          <div class="matrix" id="matrix" aria-label="Priority matrix"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card__head"><h2>Top items</h2><span class="muted">One slide each in the deck</span></div>
+        <div class="table-wrap"><table class="table" id="topTable"></table></div>
+      </section>
+
+      <section class="card">
+        <div class="card__head"><h2>Findings by activity</h2></div>
+        <div class="bars" id="bars"></div>
+      </section>
+
+      <section class="card">
+        <div class="card__head">
+          <h2>All findings</h2>
+          <input class="search" type="search" id="search" placeholder="Search findings" aria-label="Search findings">
+        </div>
+        <div class="table-wrap tall"><table class="table" id="allTable"></table></div>
+      </section>
+    </div>
+
+    <aside class="side-col">
+      <form class="card form" id="form">
+        <h2>Report details</h2>
+        <div class="grid2">
+          <label class="field"><span>Client</span><input name="client" id="client" placeholder="e.g. Acme Retail" required></label>
+          <label class="field"><span>Site</span><input name="site" id="site" placeholder="e.g. Springfield DC" required></label>
+        </div>
+        <div class="grid2">
+          <label class="field"><span>Consultant</span><input name="author" id="author" placeholder="Name on the cover"></label>
+          <label class="field"><span>Restitution date</span><input name="date" id="date" placeholder="dd/mm/yyyy"></label>
+        </div>
+        <label class="field"><span>Visit period</span><input name="visit_period" id="visit" placeholder="e.g. 25 Nov 2025 – 17 Feb 2026"></label>
+        <label class="field">
+          <span class="field__row">Executive summary
+            <button type="button" class="link" id="resetSummary">Reset to draft</button></span>
+          <textarea name="executive_summary" id="summary" rows="10"></textarea>
+          <small>One point per line. Wrap words in **double asterisks** to highlight them.</small>
+        </label>
+        <label class="check"><input type="checkbox" id="discarded" checked> Add an appendix listing discarded items</label>
+
+        <div class="actions">
+          <button type="submit" class="btn btn--primary" data-kind="zip">Download report + deck</button>
+          <div class="grid2">
+            <button type="button" class="btn btn--secondary" data-kind="docx">Word report</button>
+            <button type="button" class="btn btn--secondary" data-kind="pptx">PowerPoint</button>
+          </div>
+          <p class="status" id="status" aria-live="polite"></p>
+        </div>
+      </form>
+      <p class="note">Sections that need a consultant's input — site description, conclusion, recommendations not yet in the
+        workbook — are highlighted in yellow in the outputs.</p>
+    </aside>
+  </main>
+
+  <footer class="footer"><div class="wrap">PAR Generator · internal tool</div></footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>
