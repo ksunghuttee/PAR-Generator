@@ -1,6 +1,7 @@
 """End-to-end tests on a synthetic workbook (no client data in the repository)."""
 
 import io
+import json
 import warnings
 import zipfile
 
@@ -80,6 +81,28 @@ def test_estimated_scores_without_scoring_tab():
     assert all(f.scores_estimated for f in d.retained if f.score is not None)
 
 
+def test_overrides():
+    # Finding 5 has no Complexity and no scores; finding 3 is strategic (value 15, feasibility 6).
+    d = findings.load(workbook(), overrides={
+        "5": {"complexity": "low"},                       # estimated from Gain=Low (5) and Complexity=Low (15)
+        "3": {"feasibility": 14},                         # score recalculated: 15 × 14
+        "2": {"expected_value": 12, "score": 999},        # score typed by hand wins
+        "999": {"gain": "High"},                          # unknown ID: ignored
+    })
+    f = {x.id: x for x in d.findings}
+    assert f[5].complexity == "Low" and f[5].score == 75 and f[5].scores_estimated
+    assert f[3].score == 15 * 14 and f[3].quadrant == "quick_win" and f[3].edited == ["feasibility"]
+    assert f[2].expected_value == 12 and f[2].score == 999
+    assert f[1].edited == []
+    msgs = " | ".join(c.message for c in d.checks)
+    assert "no Complexity" not in msgs  # the edit fixed the data issue
+    assert "3 finding(s) edited" in msgs
+    # Clearing a value
+    d = findings.load(workbook(), overrides={"1": {"expected_value": None}})
+    g = next(x for x in d.findings if x.id == 1)
+    assert g.expected_value == 15 and g.scores_estimated  # re-estimated from Gain=High once cleared
+
+
 def test_missing_findings_tab():
     wb = openpyxl.Workbook()
     wb.active.append(["foo", "bar"])
@@ -140,3 +163,12 @@ def test_api_roundtrip():
     assert any(n.endswith("Report.docx") for n in names) and any(n.endswith("Restitution.pptx") for n in names)
     bad = c.post("/api/analyze", files={"file": ("x.csv", b"a,b", "text/csv")})
     assert bad.status_code == 400
+    # Edited values reach both the analysis and the generated report.
+    edits = json.dumps({"5": {"complexity": "High"}, "3": {"gain": "Low"}})
+    r = c.post("/api/analyze", files=files, data={"overrides": edits})
+    by_id = {x["id"]: x for x in r.json()["findings"]}
+    assert by_id[5]["complexity"] == "High" and by_id[5]["edited"] == ["complexity"]
+    r = c.post("/api/generate", files=files, data={"kind": "docx", "overrides": edits})
+    heads = [p.text for p in Document(io.BytesIO(r.content)).paragraphs]
+    assert "Complexity – High" in heads
+    assert c.post("/api/analyze", files=files, data={"overrides": "{not json"}).status_code == 400

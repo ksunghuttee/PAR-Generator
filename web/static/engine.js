@@ -112,22 +112,43 @@
     } else {
       checks.push({ level: "info", message: "No Feasibility-Gain tab found — expected value and feasibility were estimated from the Gain and Complexity columns.", ids: [] });
     }
-    return finish(findings, checks, !!s, fileName);
+    return { findings, checks, hasScoring: !!s, fileName };
   }
 
   /** Build a dataset from plain rows (used for the built-in example). */
   function fromRows(rows, fileName) {
-    return finish(rows.map(makeFinding), [], true, fileName);
+    return { findings: rows.map(makeFinding), checks: [], hasScoring: true, fileName };
   }
 
-  function finish(findings, checks, hasScoring, fileName) {
+  const EDITABLE = ["expected_value", "feasibility", "score", "complexity", "gain"];
+
+  /** Values edited on the page: { "<id>": { field: value } }. Mirrors findings.apply_overrides. */
+  function applyOverrides(findings, overrides) {
+    const byId = new Map(findings.map((f) => [String(f.id), f]));
+    for (const [id, ch] of Object.entries(overrides || {})) {
+      const f = byId.get(String(id));
+      if (!f || !ch || typeof ch !== "object") continue;
+      const changed = [];
+      for (const k of ["expected_value", "feasibility", "score"]) if (k in ch) { f[k] = num(ch[k]); changed.push(k); }
+      for (const k of ["complexity", "gain"]) if (k in ch) { f[k] = level(ch[k]); changed.push(k); }
+      if (!("score" in ch) && changed.some((k) => k === "expected_value" || k === "feasibility")) {
+        f.score = f.expected_value !== null && f.feasibility !== null ? f.expected_value * f.feasibility : null;
+      }
+      if (changed.length) { f.edited = changed; f.scores_estimated = false; }
+    }
+  }
+
+  /** Fill missing value / feasibility from Gain / Complexity, never replacing a typed value. */
+  function estimate(findings) {
     for (const f of findings) {
       if (f.discarded || f.score !== null) continue;
-      const ev = GAIN_V[(f.gain || "").toLowerCase()], fs = CPLX_F[(f.complexity || "").toLowerCase()];
-      if (ev !== undefined && fs !== undefined) Object.assign(f, { expected_value: ev, feasibility: fs, score: ev * fs, scores_estimated: true });
+      const ev = f.expected_value ?? GAIN_V[(f.gain || "").toLowerCase()];
+      const fs = f.feasibility ?? CPLX_F[(f.complexity || "").toLowerCase()];
+      if (ev !== undefined && ev !== null && fs !== undefined && fs !== null) {
+        f.scores_estimated = f.expected_value === null || f.feasibility === null;
+        Object.assign(f, { expected_value: ev, feasibility: fs, score: ev * fs });
+      }
     }
-    runChecks(findings, checks, hasScoring);
-    return { findings, checks, hasScoring, fileName };
   }
 
   function runChecks(findings, checks, hasScoring) {
@@ -177,13 +198,19 @@
   };
 
   /** Same output as POST /api/analyze. */
-  function analyze(ds, settings, meta) {
+  function analyze(ds, settings, meta, overrides) {
     const st = {
       value_threshold: Number(settings.value_threshold ?? 10),
       feasibility_threshold: Number(settings.feasibility_threshold ?? 10),
       top_n: Math.max(1, Math.min(40, Number(settings.top_n ?? 15))),
     };
-    const findings = ds.findings.map((f) => ({ ...f, quadrant: null, rank: null }));
+    const findings = ds.findings.map((f) => ({ ...f, quadrant: null, rank: null, edited: [] }));
+    applyOverrides(findings, overrides);
+    estimate(findings);
+    const checks = ds.checks.slice();
+    runChecks(findings, checks, ds.hasScoring);
+    const edited = findings.filter((f) => f.edited.length).map((f) => f.id);
+    if (edited.length) checks.push({ level: "info", message: `${edited.length} finding(s) edited on the page — the edited values are used in the report and deck.`, ids: edited });
     for (const f of findings) {
       if (f.discarded || f.expected_value === null || f.feasibility === null) continue;
       const hv = f.expected_value >= st.value_threshold, hf = f.feasibility >= st.feasibility_threshold;
@@ -207,7 +234,7 @@
       has_scoring_tab: ds.hasScoring,
     };
     return {
-      summary, checks: ds.checks, findings, top_items: top.map((f) => f.id), settings: st,
+      summary, checks, findings, top_items: top.map((f) => f.id), settings: st,
       draft_executive_summary: draftSummary(summary, meta || {}), file_name: ds.fileName,
     };
   }
@@ -225,5 +252,5 @@
     return lines;
   }
 
-  window.PAREngine = { parse, fromRows, analyze };
+  window.PAREngine = { parse, fromRows, analyze, EDITABLE };
 })();

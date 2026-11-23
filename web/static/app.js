@@ -24,7 +24,20 @@
     file: null, ds: null, data: null, mode: "review", selected: "overview",
     settings: { value_threshold: 10, feasibility_threshold: 10, top_n: 15 },
     filters: { q: "", activity: "", priority: "", chip: "" }, summaryEdited: false,
+    overrides: {}, editing: false,
   };
+
+  // ---- edits: kept per workbook in this browser (a convenience; the workbook is never changed) ----
+  const editKey = () => (state.file ? `par-edits:${state.file.name}:${state.file.size}` : "par-edits:sample");
+  function loadEdits() {
+    try { return JSON.parse(localStorage.getItem(editKey()) || "{}") || {}; } catch (e) { return {}; }
+  }
+  function saveEdits() {
+    try {
+      if (Object.keys(state.overrides).length) localStorage.setItem(editKey(), JSON.stringify(state.overrides));
+      else localStorage.removeItem(editKey());
+    } catch (e) { /* storage unavailable: edits still apply for this visit */ }
+  }
 
   // ---- embedding: report height to the host frame ---------------------------
   if (EMBED && window.parent !== window && "ResizeObserver" in window) {
@@ -46,12 +59,13 @@
   }
 
   async function analyze() {
-    if (LOCAL) return PAREngine.analyze(state.ds, state.settings, meta());
+    if (LOCAL) return PAREngine.analyze(state.ds, state.settings, meta(), state.overrides);
     const fd = new FormData();
     fd.append("file", state.file);
     const m = meta();
     fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period);
     for (const [k, v] of Object.entries(state.settings)) fd.append(k, v);
+    fd.append("overrides", JSON.stringify(state.overrides));
     const res = await fetch("api/analyze", { method: "POST", body: fd });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.detail || `The workbook could not be read (${res.status}).`);
@@ -65,6 +79,8 @@
     try {
       state.file = file;
       if (LOCAL) state.ds = PAREngine.parse(await file.arrayBuffer(), file.name);
+      state.overrides = loadEdits();
+      state.editing = false;
       state.data = await analyze();
       state.selected = "overview";
       state.summaryEdited = false;
@@ -113,6 +129,22 @@
     $("corpusMeta").innerHTML = `<span><b>${s.retained}</b> findings</span><span><b>${s.activities}</b> activities</span>
       <span><b>${s.quadrants.quick_win}</b> quick wins</span>
       <span class="cp-corpus-source" title="Source: ${esc(state.data.file_name)}">${esc(state.data.file_name)}</span>`;
+    const n = Object.keys(state.overrides).length;
+    if (n) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "cp-link"; b.textContent = `Reset all edits (${n})`;
+      let armed = false, t;
+      b.addEventListener("click", () => {
+        if (!armed) { // two-step confirm without a browser dialog
+          armed = true; b.textContent = `Click again to discard ${n} edit${n === 1 ? "" : "s"}`;
+          t = setTimeout(() => { armed = false; b.textContent = `Reset all edits (${n})`; }, 4000);
+          return;
+        }
+        clearTimeout(t);
+        state.overrides = {}; state.editing = false; saveEdits(); reanalyze();
+      });
+      $("corpusMeta").appendChild(b);
+    }
   }
 
   // ---- list -----------------------------------------------------------------------
@@ -151,7 +183,7 @@
     $("resultList").innerHTML = pin + rows.map((f) => `<li><button type="button" class="cp-result${f.discarded ? " is-discarded" : ""}${String(state.selected) === String(f.id) ? " active" : ""}" data-id="${esc(f.id)}">
       <div class="cp-result-head"><span class="cp-result-name">${esc(f.name)}</span>${badgeFor(f)}</div>
       <div class="cp-result-meta"><span class="cp-result-area">#${esc(f.id)} · ${esc(f.activity).toUpperCase()}</span>
-        <span>${f.score !== null ? `score ${fmt(f.score)}${f.rank ? ` · top ${f.rank}` : ""}` : esc(f.status || "")}</span></div>
+        <span>${f.score !== null ? `score ${fmt(f.score)}${f.rank ? ` · top ${f.rank}` : ""}` : esc(f.status || "")}${f.edited && f.edited.length ? ' · <span class="cp-edited">edited</span>' : ""}</span></div>
       <div class="cp-bar"><span class="cp-bar-on" style="width:${f.score ? (100 * f.score) / maxScore : 0}%"></span></div>
     </button></li>`).join("") + (rows.length ? "" : '<li class="cp-empty">No findings match these filters.</li>');
   }
@@ -161,6 +193,7 @@
     if (b) select(b.dataset.id);
   });
   function select(id) {
+    if (String(id) !== String(state.selected)) state.editing = false;
     state.selected = id === "overview" ? "overview" : String(id);
     setMode("review");
     if (state.selected === "overview") renderOverview(); else renderFinding(state.selected);
@@ -274,15 +307,12 @@
       <button type="button" class="cp-link cp-back" id="back">← Findings overview</button>
       <header class="cp-detail-head">
         <div><h2 class="cp-detail-title">${esc(f.name)}</h2>
-          <div class="cp-detail-sub">${badgeFor(f)}<span>#${esc(f.id)}</span><span>${esc(f.activity).toUpperCase()}</span>${f.rank ? `<span class="cp-badge cp-badge-success">Top item ${f.rank}</span>` : ""}</div></div>
+          <div class="cp-detail-sub">${badgeFor(f)}<span>#${esc(f.id)}</span><span>${esc(f.activity).toUpperCase()}</span>${f.rank ? `<span class="cp-badge cp-badge-success">Top item ${f.rank}</span>` : ""}${f.edited && f.edited.length ? '<span class="cp-badge cp-badge-warning">Edited</span>' : ""}</div></div>
+        ${f.discarded ? "" : `<button type="button" class="cp-btn" id="editBtn"${state.editing ? " hidden" : ""}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          Edit scores</button>`}
       </header>
-      <div class="cp-stats">
-        ${stat("", fmt(f.expected_value), "Expected value")}
-        ${stat("", f.feasibility === null ? "–" : `${fmt(f.feasibility)}<small style="font-size:11px;color:var(--muted-color)">/20</small>`, "Feasibility")}
-        ${stat(f.quadrant === "quick_win" ? "cp-stat-on" : "", fmt(f.score), "Score")}
-        ${stat(f.complexity ? "" : "cp-stat-na", esc(f.complexity || "–"), "Complexity")}
-        ${stat(f.gain ? "" : "cp-stat-na", esc(f.gain || "–"), "Gain")}
-      </div>
+      <div id="scoreBlock"></div>
       ${f.scores_estimated ? '<p class="cp-source-note">Scores estimated from Gain and Complexity (no Feasibility-Gain entry).</p>' : ""}
       <div><h3 class="cp-section-title">Issue / pain point</h3><p class="cp-text">${esc(f.issue || "–")}</p></div>
       <div><h3 class="cp-section-title">Solution</h3><p class="cp-text">${esc(f.solution || "–")}</p></div>
@@ -291,7 +321,81 @@
       ${f.client_comment ? `<div><h3 class="cp-section-title">Client feedback</h3><p class="cp-text">${esc(f.client_comment)}</p></div>` : ""}
       ${kv.length ? `<div><h3 class="cp-section-title">Details</h3><dl class="cp-kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>` : ""}
     </div>`;
-    $("back").addEventListener("click", () => select("overview"));
+    $("back").addEventListener("click", () => { state.editing = false; select("overview"); });
+    $("editBtn")?.addEventListener("click", () => { state.editing = true; renderFinding(id); });
+    renderScoreBlock(f, stat);
+  }
+
+  // Stat tiles, or the edit form for the five scoring fields.
+  function renderScoreBlock(f, stat) {
+    const box = $("scoreBlock");
+    const ed = new Set(f.edited || []);
+    const mark = (k) => (ed.has(k) ? ' <span class="cp-edit-dot" title="Edited on this page">●</span>' : "");
+    if (!state.editing || f.discarded) {
+      box.innerHTML = `<div class="cp-stats">
+        ${stat("", fmt(f.expected_value) + mark("expected_value"), "Expected value")}
+        ${stat("", f.feasibility === null ? "–" + mark("feasibility") : `${fmt(f.feasibility)}<small class="cp-stat-unit">/20</small>${mark("feasibility")}`, "Feasibility")}
+        ${stat(f.quadrant === "quick_win" ? "cp-stat-on" : "", fmt(f.score) + mark("score"), "Score")}
+        ${stat(f.complexity ? "" : "cp-stat-na", esc(f.complexity || "–") + mark("complexity"), "Complexity")}
+        ${stat(f.gain ? "" : "cp-stat-na", esc(f.gain || "–") + mark("gain"), "Gain")}
+      </div>`;
+      return;
+    }
+    const lvl = (name, v) => `<select class="cp-select" id="e_${name}">${["", "Low", "Medium", "High"].map((o) =>
+      `<option value="${o}"${(v || "") === o ? " selected" : ""}>${o || "Not set"}</option>`).join("")}</select>`;
+    const scoreOverridden = !!(state.overrides[String(f.id)] && "score" in state.overrides[String(f.id)]);
+    box.innerHTML = `<form class="cp-edit" id="editForm" novalidate>
+      <div class="cp-edit-grid">
+        <label class="cp-field"><span>Expected value</span><input class="cp-input" id="e_expected_value" type="number" step="any" value="${f.expected_value ?? ""}"></label>
+        <label class="cp-field"><span>Feasibility (0–20)</span><input class="cp-input" id="e_feasibility" type="number" step="any" min="0" max="20" value="${f.feasibility ?? ""}"></label>
+        <label class="cp-field"><span>Score</span><input class="cp-input" id="e_score" type="number" step="any" value="${f.score ?? ""}"></label>
+        <label class="cp-field"><span>Complexity</span>${lvl("complexity", f.complexity)}</label>
+        <label class="cp-field"><span>Gain</span>${lvl("gain", f.gain)}</label>
+      </div>
+      <p class="cp-source-note" id="e_hint"></p>
+      <p class="cp-edit-error" id="e_error" role="alert" hidden></p>
+      <div class="cp-edit-actions">
+        <button type="submit" class="cp-btn">Save</button>
+        <button type="button" class="cp-btn cp-btn-ghost" id="e_cancel">Cancel</button>
+        ${ed.size ? '<button type="button" class="cp-link" id="e_reset">Reset to workbook values</button>' : ""}
+      </div>
+    </form>`;
+    const ev = $("e_expected_value"), fs = $("e_feasibility"), sc = $("e_score");
+    let scoreDirty = scoreOverridden;
+    const auto = () => (ev.value !== "" && fs.value !== "" ? Number(ev.value) * Number(fs.value) : null);
+    const hint = () => {
+      $("e_hint").textContent = scoreDirty
+        ? "Score set by hand. Clear it to use expected value × feasibility again."
+        : `Score = expected value × feasibility${auto() !== null ? ` = ${fmt(auto())}` : ""}. Type a score to set it by hand.`;
+    };
+    [ev, fs].forEach((i) => i.addEventListener("input", () => { if (!scoreDirty) sc.value = auto() ?? ""; hint(); }));
+    sc.addEventListener("input", () => { scoreDirty = sc.value !== ""; if (!scoreDirty) sc.value = ""; hint(); });
+    hint();
+    ev.focus();
+    $("e_cancel").addEventListener("click", () => { state.editing = false; renderFinding(f.id); });
+    $("e_reset")?.addEventListener("click", () => {
+      delete state.overrides[String(f.id)];
+      saveEdits(); state.editing = false; reanalyze();
+    });
+    $("editForm").addEventListener("keydown", (e) => { if (e.key === "Escape") $("e_cancel").click(); });
+    $("editForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const read = (el) => (el.value.trim() === "" ? null : Number(el.value));
+      const vals = { expected_value: read(ev), feasibility: read(fs), score: scoreDirty ? read(sc) : undefined };
+      const bad = Object.entries(vals).find(([, v]) => v !== null && v !== undefined && !Number.isFinite(v));
+      if (bad) { $("e_error").textContent = "Enter numbers only, or leave a field empty to clear it."; $("e_error").hidden = false; return; }
+      const prev = state.overrides[String(f.id)] || {};
+      const next = { ...prev };
+      const same = (a, b) => (a ?? null) === (b ?? null);
+      for (const k of ["expected_value", "feasibility"]) if (!same(vals[k], f[k])) next[k] = vals[k];
+      for (const k of ["complexity", "gain"]) { const v = $("e_" + k).value || null; if (!same(v, f[k])) next[k] = v; }
+      if (scoreDirty) { if (!same(vals.score, f.score) || "score" in prev) next.score = vals.score; }
+      else delete next.score; // back to value × feasibility
+      if (Object.keys(next).length) state.overrides[String(f.id)] = next; else delete state.overrides[String(f.id)];
+      saveEdits();
+      state.editing = false;
+      reanalyze();
+    });
   }
 
   // ---- export ------------------------------------------------------------------------
@@ -347,6 +451,7 @@
     fd.append("author", $("author").value); fd.append("date", $("date").value);
     fd.append("executive_summary", $("summary").value); fd.append("include_discarded", $("discarded").checked);
     for (const [k, v] of Object.entries(state.settings)) fd.append(k, v);
+    fd.append("overrides", JSON.stringify(state.overrides));
     try {
       const res = await fetch("api/generate", { method: "POST", body: fd });
       if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || `Generation failed (${res.status}).`); }
@@ -399,7 +504,8 @@
     $("site").value = LOCAL.site || "";
     $("author").value = LOCAL.author || "";
     $("visit").value = LOCAL.visit || "";
-    state.data = PAREngine.analyze(state.ds, state.settings, meta());
+    state.overrides = loadEdits();
+    state.data = PAREngine.analyze(state.ds, state.settings, meta(), state.overrides);
     onData(true);
   }
 })();

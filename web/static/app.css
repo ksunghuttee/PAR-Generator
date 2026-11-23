@@ -235,6 +235,16 @@ button.cp-value-row:hover { border-color: var(--app-accent); }
 .cp-placeholder { padding: 8px 10px; font-size: 12px; color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-border); border-radius: 4px; }
 .cp-placeholder p { margin: 4px 0 0; color: var(--text); opacity: .85; }
 .cp-back { align-self: flex-start; }
+.cp-stat-unit { font-size: 11px; font-weight: 400; color: var(--muted-color); }
+.cp-edit-dot { font-size: 9px; vertical-align: super; color: var(--warning-text); }
+.cp-edited { color: var(--warning-text); }
+.cp-edit { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--card-bg); border: 1px solid var(--app-accent); border-radius: 6px; }
+.cp-edit-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.cp-edit-grid .cp-select { padding: 6px 8px; font-size: 13px; }
+.cp-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cp-edit-actions .cp-link { margin-left: auto; }
+.cp-edit-error { margin: 0; font-size: 12px; color: var(--danger-text); }
+@media (max-width: 700px) { .cp-edit-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .cp-status { margin: 0; padding: 8px 12px; font-size: 12px; color: var(--info-text); background: var(--info-bg); border: 1px solid var(--info-border); border-radius: 4px; }
 .cp-status.is-error { color: var(--danger-text); background: var(--danger-bg); border-color: var(--danger-border); }

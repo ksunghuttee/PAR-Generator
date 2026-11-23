@@ -113,6 +113,7 @@ class Finding:
     client_comment: str | None = None
     quadrant: str | None = None
     rank: int | None = None
+    edited: list = field(default_factory=list)  # fields changed on the web page
 
     @property
     def discarded(self) -> bool:
@@ -278,7 +279,37 @@ class WorkbookError(ValueError):
     pass
 
 
-def load(source: str | bytes | BinaryIO, settings: Settings | None = None) -> PARData:
+EDITABLE = ("expected_value", "feasibility", "score", "complexity", "gain")
+
+
+def apply_overrides(findings: list[Finding], overrides: dict) -> None:
+    """Apply values edited on the web page: {finding id: {field: value}}.
+
+    Numbers may be null (clear the value). Score is recalculated as value × feasibility
+    when either changes, unless the edit sets the score itself.
+    """
+    by_id = {str(f.id): f for f in findings}
+    for fid, changes in (overrides or {}).items():
+        f = by_id.get(str(fid))
+        if f is None or not isinstance(changes, dict):
+            continue
+        changed = []
+        for key in ("expected_value", "feasibility", "score"):
+            if key in changes:
+                setattr(f, key, _num(changes[key]))
+                changed.append(key)
+        for key in ("complexity", "gain"):
+            if key in changes:
+                setattr(f, key, _level(changes[key]))
+                changed.append(key)
+        if "score" not in changes and ({"expected_value", "feasibility"} & set(changed)):
+            f.score = f.expected_value * f.feasibility if f.expected_value is not None and f.feasibility is not None else None
+        if changed:
+            f.edited = changed
+            f.scores_estimated = False
+
+
+def load(source: str | bytes | BinaryIO, settings: Settings | None = None, overrides: dict | None = None) -> PARData:
     if isinstance(source, bytes):
         source = io.BytesIO(source)
     with warnings.catch_warnings():
@@ -370,14 +401,24 @@ def load(source: str | bytes | BinaryIO, settings: Settings | None = None) -> PA
                 "No Feasibility-Gain tab found — expected value and feasibility were estimated from the Gain and Complexity columns.",
             )
         )
+    if overrides:
+        apply_overrides(findings, overrides)
     for f in findings:
         if f.discarded or f.score is not None:
             continue
-        ev, fs = GAIN_TO_VALUE.get((f.gain or "").lower()), COMPLEXITY_TO_FEASIBILITY.get((f.complexity or "").lower())
+        # Fill only what is missing, so a value typed in by the user is never replaced.
+        ev = f.expected_value if f.expected_value is not None else GAIN_TO_VALUE.get((f.gain or "").lower())
+        fs = f.feasibility if f.feasibility is not None else COMPLEXITY_TO_FEASIBILITY.get((f.complexity or "").lower())
         if ev is not None and fs is not None:
-            f.expected_value, f.feasibility, f.score, f.scores_estimated = ev, fs, ev * fs, True
+            f.scores_estimated = f.expected_value is None or f.feasibility is None
+            f.expected_value, f.feasibility, f.score = ev, fs, ev * fs
 
     _run_checks(findings, checks, sws is not None)
+    if overrides:
+        n = sum(1 for f in findings if f.edited)
+        if n:
+            checks.append(Check("info", f"{n} finding(s) edited on the page — the edited values are used in the report and deck.",
+                                [f.id for f in findings if f.edited]))
     data = PARData(findings=findings, checks=checks, has_scoring_tab=sws is not None, sheet_names=list(wb.sheetnames))
     data.apply_settings(settings or Settings())
     wb.close()

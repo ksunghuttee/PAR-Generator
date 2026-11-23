@@ -9,6 +9,7 @@ between requests, so client data never persists on the server.
 from __future__ import annotations
 
 import io
+import json
 import re
 import zipfile
 from pathlib import Path
@@ -53,10 +54,24 @@ async def _read(upload: UploadFile) -> bytes:
     return data
 
 
-def _load(data: bytes, value_threshold: float, feasibility_threshold: float, top_n: int) -> findings.PARData:
+def _overrides(raw: str) -> dict:
+    """Values edited on the page, as JSON: {"<finding id>": {"gain": "High", "score": 120, ...}}."""
+    if not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError as e:
+        raise HTTPException(400, "The edited values could not be read. Reload the page and try again.") from e
+    if not isinstance(parsed, dict) or len(parsed) > 5000:
+        raise HTTPException(400, "The edited values are not in the expected format.")
+    return {str(k): {f: v for f, v in ch.items() if f in findings.EDITABLE}
+            for k, ch in parsed.items() if isinstance(ch, dict)}
+
+
+def _load(data: bytes, value_threshold: float, feasibility_threshold: float, top_n: int, overrides: str = "") -> findings.PARData:
     settings = findings.Settings(value_threshold, feasibility_threshold, max(1, min(top_n, 40)))
     try:
-        return findings.load(data, settings)
+        return findings.load(data, settings, _overrides(overrides))
     except findings.WorkbookError as e:
         raise HTTPException(422, str(e)) from e
 
@@ -70,8 +85,9 @@ async def analyze(
     value_threshold: float = Form(10),
     feasibility_threshold: float = Form(10),
     top_n: int = Form(15),
+    overrides: str = Form(""),
 ):
-    data = _load(await _read(file), value_threshold, feasibility_threshold, top_n)
+    data = _load(await _read(file), value_threshold, feasibility_threshold, top_n, overrides)
     meta = content.ReportMeta(client=client or "Client", site=site or "Site", visit_period=visit_period)
     out = data.to_json()
     out["draft_executive_summary"] = content.draft_executive_summary(data, meta)
@@ -97,10 +113,11 @@ async def generate(
     value_threshold: float = Form(10),
     feasibility_threshold: float = Form(10),
     top_n: int = Form(15),
+    overrides: str = Form(""),
 ):
     if kind not in ("docx", "pptx", "zip"):
         raise HTTPException(400, "kind must be docx, pptx or zip")
-    data = _load(await _read(file), value_threshold, feasibility_threshold, top_n)
+    data = _load(await _read(file), value_threshold, feasibility_threshold, top_n, overrides)
     meta = content.ReportMeta(
         client=client.strip() or "Client",
         site=site.strip() or "Site",
