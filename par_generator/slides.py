@@ -17,7 +17,7 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
-from .content import BLUE, GREY, NAVY, QUADRANT_COLOURS, ReportMeta, quick_wins_text, recommendation_hint, split_bold
+from .content import BLUE, GREY, NAVY, QUADRANT_COLOURS, ReportMeta, quick_wins_text, split_bold
 from .findings import FEASIBILITY_MAX, QUADRANTS, Finding, PARData
 
 TEMPLATE = Path(__file__).parent / "templates" / "deck_template.pptx"
@@ -331,13 +331,7 @@ def _top_item_slide(prs, layout, f: Finding, client: str):
         r = p.add_run()
         r.text, r.font.size = "[Write the Manhattan recommendation]", Pt(12)
         _highlight(r)
-        hint = recommendation_hint(f)
-        if hint:
-            p = tf.add_paragraph()
-            r = p.add_run()
-            r.text = "Analyst notes: " + hint
-            r.font.size, r.font.italic = Pt(9), True
-            r.font.color.rgb = _rgb(GREY)
+        # Internal comments and next actions never go into the client deck.
 
     # Feasibility gauge
     _band(s, right_x, top, right_w, band, "Feasibility Score")

@@ -101,8 +101,3 @@ def quick_wins_text(data: PARData) -> list[tuple[int, str]]:
             f"The **{len(data.top_items())} top actions** are detailed in the following slides.",
         ),
     ]
-
-
-def recommendation_hint(f) -> str:
-    bits = [b for b in (f.next_action, f.comments) if b and b.lower() != "closed"]
-    return " — ".join(bits)

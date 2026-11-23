@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from pptx import Presentation
 
 from par_generator import content, findings, slides, word
+from par_generator import workbook as wb_writer
 from web.app import app
 
 warnings.filterwarnings("ignore")
@@ -172,3 +173,75 @@ def test_api_roundtrip():
     heads = [p.text for p in Document(io.BytesIO(r.content)).paragraphs]
     assert "Complexity – High" in heads
     assert c.post("/api/analyze", files=files, data={"overrides": "{not json"}).status_code == 400
+
+
+SECRET = "INTERNAL-ONLY-NOTE"
+
+
+def _all_text_docx(blob: bytes) -> str:
+    d = Document(io.BytesIO(blob))
+    parts = [p.text for p in d.paragraphs]
+    for t in d.tables:
+        for row in t.rows:
+            parts += [c.text for c in row.cells]
+    return "\n".join(parts)
+
+
+def _all_text_pptx(blob: bytes) -> str:
+    prs = Presentation(io.BytesIO(blob))
+    out = []
+    for s in prs.slides:
+        for sh in s.shapes:
+            if sh.has_text_frame:
+                out.append(sh.text_frame.text)
+            if sh.has_table:
+                out += [c.text for r in sh.table.rows for c in r.cells]
+    return "\n".join(out)
+
+
+def test_text_edits_and_internal_comments_stay_internal():
+    edits = {
+        "1": {"recommendation": "Turn on auto-verify for ASNs.", "solution": "New solution text", "comments": SECRET, "theme": "Inbound flow"},
+        "2": {"comments": SECRET},             # no recommendation: placeholder only, never the note
+        "4": {"comments": SECRET},             # discarded: appendix must not show it
+    }
+    d = findings.load(workbook(), overrides=edits)
+    f = {x.id: x for x in d.findings}
+    assert f[1].recommendation == "Turn on auto-verify for ASNs." and f[1].theme == "Inbound flow" and f[1].comments == SECRET
+    assert set(f[1].edited) == {"recommendation", "solution", "comments", "theme"}
+    m = _meta(d)
+    doc = _all_text_docx(word.build_report(d, m))
+    deck = _all_text_pptx(slides.build_deck(d, m))
+    assert "Turn on auto-verify for ASNs." in doc and "New solution text" in doc and "Inbound flow" in doc
+    assert SECRET not in doc and SECRET not in deck
+    assert "note a" not in doc and "note b" not in doc and "Reproduce /Test" not in doc  # original internal notes too
+    assert "note b" not in deck
+
+
+def test_workbook_write_back_round_trip():
+    src = workbook()
+    edits = {
+        "1": {"expected_value": 9, "feasibility": 9, "recommendation": "Line one\nLine two", "theme": "Inbound", "comments": "c1"},
+        "3": {"score": 123, "gain": "low", "client_comment": "Agreed"},
+        "5": {"expected_value": 12, "feasibility": 11},   # not on the scoring tab yet: a row is added
+        "2": {"issue": ""},                                # cleared
+    }
+    out = wb_writer.write_back(src, edits)
+    a = {x.id: x for x in findings.load(src, overrides=edits).findings}
+    b = {x.id: x for x in findings.load(out).findings}
+    for i in a:
+        for k in findings.EDITABLE:
+            assert getattr(a[i], k) == getattr(b[i], k), (i, k, getattr(a[i], k), getattr(b[i], k))
+    ws = openpyxl.load_workbook(io.BytesIO(out))["Findings"]
+    headers = [c.value for c in ws[1]]
+    assert "Recommendation" in headers and "Theme" in headers
+    assert "xl/calcChain.xml" not in zipfile.ZipFile(io.BytesIO(out)).namelist()
+
+
+def test_api_workbook_download():
+    c = TestClient(app)
+    files = {"file": ("FR99 findings.xlsx", workbook(), "application/octet-stream")}
+    r = c.post("/api/workbook", files=files, data={"overrides": json.dumps({"1": {"recommendation": "Do it"}})})
+    assert r.status_code == 200 and "FR99 findings - updated.xlsx" in r.headers["content-disposition"]
+    f = {x.id: x for x in findings.load(r.content).findings}
+    assert f[1].recommendation == "Do it"

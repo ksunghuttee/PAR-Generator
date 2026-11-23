@@ -13,7 +13,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from . import charts
-from .content import GREY, NAVY, ReportMeta, recommendation_hint, split_bold
+from .content import GREY, NAVY, ReportMeta, split_bold
 from .findings import QUADRANTS, Finding, PARData
 
 TEMPLATE = Path(__file__).parent / "templates" / "report_template.docx"
@@ -266,9 +266,6 @@ class _Writer:
             self.p(f.recommendation)
         else:
             self.placeholder("Write the Manhattan recommendation")
-            hint = recommendation_hint(f)
-            if hint:
-                self.p(f"Analyst notes (delete before sending): {hint}", italic=True, color=GREY, size=8.5)
         if f.client_comment:
             self.p(f"{self.meta.client} feedback: {f.client_comment}", italic=True, color=GREY, size=8.5)
 
@@ -301,8 +298,8 @@ class _Writer:
         self.h("Appendix – Items reviewed and not retained", 1, new_page=True)
         self.p("The following points were analysed during the review and not retained as actions.")
         self.table(
-            ["ID", "Activity", "Name", "Comment"],
-            [[f.id, f.activity, f.name, f.comments or f.next_action] for f in discarded],
+            ["ID", "Activity", "Name", "Issue"],
+            [[f.id, f.activity, f.name, f.issue] for f in discarded],  # never the internal comments
             [1.2, 3.0, 6.0, 6.6],
         )
 

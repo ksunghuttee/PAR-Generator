@@ -18,7 +18,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from par_generator import content, findings, slides, word
+from par_generator import content, findings, slides, word, workbook
 
 MAX_UPLOAD = 25 * 1024 * 1024
 STATIC = Path(__file__).parent / "static"
@@ -93,6 +93,22 @@ async def analyze(
     out["draft_executive_summary"] = content.draft_executive_summary(data, meta)
     out["file_name"] = file.filename
     return JSONResponse(out)
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@app.post("/api/workbook")
+async def updated_workbook(file: UploadFile = File(...), overrides: str = Form("")):
+    """The uploaded workbook with the values edited on the page written back into it."""
+    data = await _read(file)
+    try:
+        body = workbook.write_back(data, _overrides(overrides))
+    except findings.WorkbookError as e:
+        raise HTTPException(422, str(e)) from e
+    stem = re.sub(r"\.xls[xm]$", "", file.filename or "PAR findings", flags=re.I)
+    name = _safe(stem.replace(".", " ")) + " - updated.xlsx"
+    return Response(body, media_type=XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 def _safe(s: str) -> str:

@@ -73,6 +73,10 @@
           </div>
           <div class="cp-page-head-right">
             <div class="cp-corpus-meta" id="corpusMeta"></div>
+            <button type="button" class="cp-btn cp-btn-ghost" id="downloadWb" data-wb hidden title="Download the workbook with your edits written into it">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+              Download workbook
+            </button>
             <label class="cp-btn cp-btn-upload" for="file">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
               <span id="uploadLabel">Upload workbook</span>
@@ -112,19 +116,24 @@
               <option value="discarded">Discarded</option>
             </select>
             <div class="cp-examples cp-sheet-chips" id="chips">
+              <button type="button" class="cp-chip" data-chip="towrite">To write</button>
               <button type="button" class="cp-chip" data-chip="top">Top items</button>
               <button type="button" class="cp-chip" data-chip="edited">Edited</button>
               <button type="button" class="cp-chip" data-chip="missing">Missing data</button>
               <button type="button" class="cp-chip" data-chip="open">Still open</button>
             </div>
+            <div class="cp-progress" id="progress"></div>
           </div>
-          <div class="cp-grid-wrap" id="gridWrap" tabindex="0" aria-label="Findings spreadsheet. Use the arrow keys to move, Enter or type to edit.">
-            <table class="cp-grid" id="grid" role="grid"></table>
+          <div class="cp-sheet-body">
+            <div class="cp-grid-wrap" id="gridWrap" tabindex="0" aria-label="Findings spreadsheet. Use the arrow keys to move, Enter or type to edit.">
+              <table class="cp-grid" id="grid" role="grid"></table>
+            </div>
+            <aside class="cp-panel" id="panel" hidden aria-label="Write the finding"></aside>
           </div>
           <div class="cp-grid-status">
             <span id="gridCount"></span>
             <span id="gridMsg" aria-live="polite"></span>
-            <span class="cp-grid-hint">Double-click or type to edit · Enter saves · Esc cancels · Delete clears · paste a block from Excel with Ctrl/Cmd+V</span>
+            <span class="cp-grid-hint">Type or double-click to edit scores · ✎ or Enter on a row to write its texts · Ctrl/Cmd+Z undo · paste a block from Excel with Ctrl/Cmd+V</span>
           </div>
         </section>
 

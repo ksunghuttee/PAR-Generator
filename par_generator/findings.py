@@ -279,14 +279,20 @@ class WorkbookError(ValueError):
     pass
 
 
-EDITABLE = ("expected_value", "feasibility", "score", "complexity", "gain")
+SCORE_FIELDS = ("expected_value", "feasibility", "score", "complexity", "gain")
+# Free text written on the page. `comments` is the workbook's "Other Comments" column:
+# internal notes that never appear in the client documents.
+TEXT_FIELDS = ("issue", "solution", "recommendation", "client_comment", "comments", "theme")
+EDITABLE = SCORE_FIELDS + TEXT_FIELDS
+MAX_TEXT = 20000
 
 
 def apply_overrides(findings: list[Finding], overrides: dict) -> None:
     """Apply values edited on the web page: {finding id: {field: value}}.
 
     Numbers may be null (clear the value). Score is recalculated as value × feasibility
-    when either changes, unless the edit sets the score itself.
+    when either changes, unless the edit sets the score itself. Text fields take a
+    string; an empty string clears the field.
     """
     by_id = {str(f.id): f for f in findings}
     for fid, changes in (overrides or {}).items():
@@ -305,8 +311,14 @@ def apply_overrides(findings: list[Finding], overrides: dict) -> None:
         if "score" not in changes and ({"expected_value", "feasibility"} & set(changed)):
             f.score = f.expected_value * f.feasibility if f.expected_value is not None and f.feasibility is not None else None
         if changed:
-            f.edited = changed
             f.scores_estimated = False
+        for key in TEXT_FIELDS:
+            if key in changes:
+                v = changes[key]
+                setattr(f, key, _clean(str(v)[:MAX_TEXT]) if v is not None else None)
+                changed.append(key)
+        if changed:
+            f.edited = changed
 
 
 def load(source: str | bytes | BinaryIO, settings: Settings | None = None, overrides: dict | None = None) -> PARData:

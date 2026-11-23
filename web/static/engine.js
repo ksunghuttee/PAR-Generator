@@ -120,7 +120,10 @@
     return { findings: rows.map(makeFinding), checks: [], hasScoring: true, fileName };
   }
 
-  const EDITABLE = ["expected_value", "feasibility", "score", "complexity", "gain"];
+  const SCORE_FIELDS = ["expected_value", "feasibility", "score", "complexity", "gain"];
+  // `comments` is the workbook's "Other Comments": internal, never in the client documents.
+  const TEXT_FIELDS = ["issue", "solution", "recommendation", "client_comment", "comments", "theme"];
+  const EDITABLE = [...SCORE_FIELDS, ...TEXT_FIELDS];
 
   /** Values edited on the page: { "<id>": { field: value } }. Mirrors findings.apply_overrides. */
   function applyOverrides(findings, overrides) {
@@ -134,7 +137,9 @@
       if (!("score" in ch) && changed.some((k) => k === "expected_value" || k === "feasibility")) {
         f.score = f.expected_value !== null && f.feasibility !== null ? f.expected_value * f.feasibility : null;
       }
-      if (changed.length) { f.edited = changed; f.scores_estimated = false; }
+      if (changed.length) f.scores_estimated = false;
+      for (const k of TEXT_FIELDS) if (k in ch) { f[k] = ch[k] === null || ch[k] === undefined ? null : clean(String(ch[k]).slice(0, 20000)); changed.push(k); }
+      if (changed.length) f.edited = changed;
     }
   }
 
@@ -252,5 +257,5 @@
     return lines;
   }
 
-  window.PAREngine = { parse, fromRows, analyze, EDITABLE };
+  window.PAREngine = { parse, fromRows, analyze, EDITABLE, TEXT_FIELDS };
 })();

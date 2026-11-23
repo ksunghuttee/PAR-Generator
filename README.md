@@ -14,7 +14,14 @@ pip install -r requirements.txt
 uvicorn web.app:app --reload
 ```
 
-Open http://127.0.0.1:8000, drop the findings workbook, review the data checks, fill in the report details and download.
+Open http://127.0.0.1:8000 and drop the findings workbook. Then:
+
+- **Findings** is an editable spreadsheet. Value, Feasibility, Score, Complexity and Gain are edited in the cells (typing, Enter/Tab, Delete, L/M/H, and pasting a block from Excel).
+- **✎ or Enter on a row** opens a side panel for the texts: issue, solution, Manhattan recommendation, client feedback, theme and **internal comments**. Internal comments are never written into the report or the deck. Text is saved as you type, and Ctrl/Cmd+Z undoes.
+- **Overview** shows the checks, the priority matrix, the top items and the breakdowns.
+- **Report & export** builds the Word report and the deck. **Download workbook** returns your Excel file with every edit written back into it (Recommendation and Theme columns are added if missing). Nothing else in the file changes.
+
+Edits are kept per workbook in the browser until you download the updated workbook. The server stores nothing.
 
 With Docker:
 
