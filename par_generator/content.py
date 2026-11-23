@@ -14,11 +14,13 @@ BLUE = "0070C0"
 ACCENT = "4472C4"  # template accent1 — table headers
 INK = "0E0E0E"
 GREY = "6F6F6F"
+# Validated categorical set (distinct under colour-vision deficiency); the web page
+# adds a marker shape per quadrant as a second cue.
 QUADRANT_COLOURS = {
-    "quick_win": "2E9E5B",
-    "strategic": "0070C0",
-    "filler": "A6A6A6",
-    "deprioritise": "C0504D",
+    "quick_win": "23955B",
+    "strategic": "2563C9",
+    "filler": "D08A12",
+    "deprioritise": "B03A7C",
 }
 
 

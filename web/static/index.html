@@ -79,7 +79,12 @@
             <label class="field"><span>Top items to detail</span>
               <input type="number" id="topn" value="15" min="1" max="40" step="1"></label>
           </div>
-          <div class="matrix" id="matrix" aria-label="Priority matrix"></div>
+          <div class="matrix" id="matrix" aria-label="Findings per priority category"></div>
+        </div>
+        <div class="prio__chart">
+          <h3 class="chart-title">Priority matrix</h3>
+          <p class="muted chart-sub">Each mark is a finding. Hover or tap a mark for its details.</p>
+          <div id="pchart"></div>
         </div>
       </section>
 
@@ -89,8 +94,11 @@
       </section>
 
       <section class="card">
-        <div class="card__head"><h2>Findings by activity</h2></div>
-        <div class="bars" id="bars"></div>
+        <div class="card__head"><h2>Breakdown</h2><span class="muted">Retained findings</span></div>
+        <div class="breakdown">
+          <div><h3>By solution type</h3><div class="bars bars--type" id="typeBars"></div></div>
+          <div><h3>By activity</h3><div class="bars" id="bars"></div></div>
+        </div>
       </section>
 
       <section class="card">
@@ -137,6 +145,7 @@
   </main>
 
   <footer class="footer"><div class="wrap">PAR Generator · internal tool</div></footer>
+  <script src="/static/charts.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

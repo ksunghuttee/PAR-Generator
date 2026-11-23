@@ -111,8 +111,12 @@
       strategic: "High value · harder", quick_win: "High value · easier",
       deprioritise: "Lower value · harder", filler: "Lower value · easier",
     };
-    $("matrix").innerHTML = order.map((q) =>
-      `<div class="quad quad--${q}"><small>${QUAD[q]}</small><b>${s.quadrants[q]}</b><small>${hint[q]}</small></div>`).join("");
+    const shapes = { circle: '<circle r="5"/>', square: '<rect x="-4.5" y="-4.5" width="9" height="9" rx="1.5"/>',
+      diamond: '<path d="M0 -6L6 0L0 6L-6 0Z"/>', triangle: '<path d="M0 -5.8L5.5 4L-5.5 4Z"/>' };
+    $("matrix").innerHTML = order.map((q) => `<div class="quad quad--${q}"><span class="quad__name">
+      <svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true">${shapes[PARCharts.QUAD[q].shape]}</svg>${QUAD[q]}</span>
+      <b>${s.quadrants[q]}</b><small>${hint[q]}</small></div>`).join("");
+    PARCharts.renderMatrix($("pchart"), d.findings, d.settings.value_threshold, d.settings.feasibility_threshold);
 
     const byId = Object.fromEntries(d.findings.map((f) => [f.id, f]));
     const top = d.top_items.map((id) => byId[id]);
@@ -123,10 +127,8 @@
         <td class="num"><b>${fmt(f.score)}</b></td></tr>`).join("") ||
       `<tr><td colspan="7" class="muted">No scored findings.</td></tr>`}</tbody>`;
 
-    const max = Math.max(1, ...s.by_activity.map((a) => a[1]));
-    $("bars").innerHTML = s.by_activity.map(([a, n]) => `<div class="bar"><span class="bar__label" title="${esc(a)}">${esc(a)}</span>
-      <span class="bar__track"><span class="bar__fill" style="display:block;width:${(100 * n) / max}%"></span></span>
-      <span class="bar__n">${n}</span></div>`).join("");
+    PARCharts.renderBars($("typeBars"), s.by_solution_type);
+    PARCharts.renderBars($("bars"), s.by_activity);
 
     renderAll();
     if (!state.summaryEdited) $("summary").value = d.draft_executive_summary.join("\n");
