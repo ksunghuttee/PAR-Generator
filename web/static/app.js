@@ -223,6 +223,10 @@
     });
   }
 
+  // 0–20 scale in five steps: <4, 4–7, 8–11, 12–15, 16+.
+  const HEAT_EDGES = [4, 8, 12, 16];
+  const heatBin = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : HEAT_EDGES.filter((e) => Number(v) >= e).length);
+
   function cellHTML(f, c) {
     const locked = c.edit && f.discarded;
     const cls = [c.num ? "num" : "", c.edit ? "is-editable" : "", locked ? "is-locked" : "", c.edit && isEdited(f, c.key) ? "is-edited" : "",
@@ -256,7 +260,10 @@
       case "expected_value": case "feasibility": case "score": {
         const auto = c.key === "score" && f.score !== null && !isEdited(f, "score");
         const est = f.scores_estimated && c.key !== "score";
-        return `<td ${attrs} title="${est ? "Estimated from Gain / Complexity" : auto ? "Value × feasibility" : ""}">${fmt(f[c.key])}${est ? '<i class="cp-est">est.</i>' : ""}</td>`;
+        // Colour scale on Value and Feasibility: one green hue, darker = higher = better.
+        const heat = c.key !== "score" && !f.discarded ? heatBin(f[c.key]) : null;
+        const a2 = heat === null ? attrs : attrs.replace('class="', `class="heat-${heat} `);
+        return `<td ${a2} title="${est ? "Estimated from Gain / Complexity" : auto ? "Value × feasibility" : ""}">${fmt(f[c.key])}${est ? '<i class="cp-est">est.</i>' : ""}</td>`;
       }
       default: return `<td ${attrs}>${esc(f[c.key] ?? "")}</td>`;
     }

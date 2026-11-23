@@ -30,6 +30,8 @@
   --badge-neutral-text: #cbd5e1; --badge-neutral-bg: #1e293b; --badge-neutral-border: #334155;
   /* priority quadrants (validated for this surface; shapes are the second cue) */
   --q-quick: #1f9a5e; --q-strat: #3d7be3; --q-filler: #b87510; --q-depri: #c44f96;
+  --heat: #22c55e; /* colour scale hue on the dark surface */
+  --hover-tint: #ffffff0d; /* translucent, so colour-scaled cells keep their colour on hover */
   color-scheme: dark;
 }
 /* ---- tokens: light ------------------------------------------------------ */
@@ -53,6 +55,8 @@ html.theme-light {
   --info-text: #1d4ed8;    --info-bg: #eff6ff;    --info-border: #93c5fd;
   --badge-neutral-text: #475569; --badge-neutral-bg: #f1f5f9; --badge-neutral-border: #cbd5e1;
   --q-quick: #23955b; --q-strat: #2563c9; --q-filler: #d08a12; --q-depri: #b03a7c;
+  --heat: #16a34a;
+  --hover-tint: #22302c0d;
   color-scheme: light;
 }
 /* ---- host accent variants ----------------------------------------------- */
@@ -276,8 +280,19 @@ button.cp-value-row:hover { border-color: var(--app-accent); }
 .cp-grid td { background-color: var(--panel-bg); cursor: cell; }
 .cp-grid td.is-editable { background-color: var(--input-bg); }
 /* hover as an overlay so sticky cells stay opaque */
-.cp-grid tbody tr:hover td { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
+.cp-grid tbody tr:hover td { background-image: linear-gradient(var(--hover-tint), var(--hover-tint)); }
 .cp-grid td.is-edited { background-color: var(--warning-bg); position: relative; }
+/* Value / Feasibility colour scale (sequential, one hue): declared after is-edited so the
+   scale wins; an edited cell keeps its amber corner marker. */
+.cp-grid td.heat-0, .cp-grid td.heat-1, .cp-grid td.heat-2, .cp-grid td.heat-3, .cp-grid td.heat-4 { position: relative; }
+.cp-grid td.heat-1, .cp-heat-scale .heat-1 { background-color: color-mix(in srgb, var(--heat) 12%, var(--input-bg)); }
+.cp-grid td.heat-2, .cp-heat-scale .heat-2 { background-color: color-mix(in srgb, var(--heat) 24%, var(--input-bg)); }
+.cp-grid td.heat-3, .cp-heat-scale .heat-3 { background-color: color-mix(in srgb, var(--heat) 37%, var(--input-bg)); }
+.cp-grid td.heat-4, .cp-heat-scale .heat-4 { background-color: color-mix(in srgb, var(--heat) 52%, var(--input-bg)); }
+.cp-grid td.heat-4 { font-weight: 600; }
+.cp-heat-legend { display: inline-flex; align-items: center; gap: 6px; }
+.cp-heat-scale { display: inline-flex; border: 1px solid var(--input-border); border-radius: 2px; overflow: hidden; }
+.cp-heat-scale i { width: 14px; height: 10px; background-color: var(--input-bg); }
 .cp-grid td.is-edited::after { content: ""; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 7px 7px 0; border-color: transparent var(--warning-text) transparent transparent; }
 .cp-grid td.is-active { outline: 2px solid var(--app-accent); outline-offset: -2px; }
 .cp-grid td.is-locked { color: var(--muted-color); cursor: not-allowed; }
@@ -317,7 +332,7 @@ select.cp-cell-input { padding: 0 4px; }
 .cp-sheet-body > * { min-height: 0; }
 .cp-sheet.has-panel .cp-sheet-body { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }
 .cp-sheet.has-panel .cp-grid { min-width: 1010px; }
-.cp-grid tr.is-open td { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
+.cp-grid tr.is-open td { background-image: linear-gradient(var(--hover-tint), var(--hover-tint)); }
 .cp-grid tr.is-open td.cp-grid-expand { box-shadow: inset 3px 0 0 var(--app-accent); }
 .cp-expand.is-open { color: var(--app-accent); }
 .cp-reco { font-size: 11px; color: var(--muted-color); }
