@@ -24,28 +24,29 @@
   // Spreadsheet columns. `edit` marks the five editable ones.
   const COLS = [
     { key: "open", label: "", w: 30 },
-    { key: "id", label: "ID", w: 56, num: true, sticky: true },
+    { key: "id", label: "ID", w: 56, num: true, sticky: true, left: 30 },
+    { key: "name", label: "Finding", w: 250, sticky: true, left: 86, lastSticky: true },
+    { key: "solution", label: "Solution description", w: 300, edit: "text" },
+    { key: "expected_value", label: "Value", w: 72, num: true, edit: "num" },
+    { key: "feasibility", label: "Feasibility", w: 100, num: true, edit: "num" },
+    { key: "score", label: "Score", w: 80, num: true, edit: "num" },
+    { key: "complexity", label: "Complexity", w: 108, edit: "level" },
+    { key: "gain", label: "Gain", w: 84, edit: "level" },
+    { key: "quadrant", label: "Priority", w: 104 },
+    { key: "rank", label: "Top", w: 50, num: true },
+    { key: "reco", label: "Reco.", w: 76 },
     { key: "activity", label: "Activity", w: 140 },
-    { key: "name", label: "Finding", w: 0 }, // takes the remaining width
     { key: "solution_type", label: "Solution type", w: 160 },
-    { key: "status", label: "Status", w: 130 },
-    { key: "reco", label: "Reco.", w: 70 },
-    { key: "expected_value", label: "Value", w: 76, num: true, edit: "num" },
-    { key: "feasibility", label: "Feasibility", w: 108, num: true, edit: "num" },
-    { key: "score", label: "Score", w: 86, num: true, edit: "num" },
-    { key: "complexity", label: "Complexity", w: 116, edit: "level" },
-    { key: "gain", label: "Gain", w: 92, edit: "level" },
-    { key: "quadrant", label: "Priority", w: 112 },
-    { key: "rank", label: "Top", w: 54, num: true },
+    { key: "status", label: "Status", w: 140 },
   ];
   // With the writing panel open the sheet narrows: hide columns the panel already shows.
-  const HIDE_WITH_PANEL = new Set(["activity", "solution_type", "status"]);
+  const HIDE_WITH_PANEL = new Set(["solution", "activity", "solution_type", "status"]);
   const cols = () => (state.panel ? COLS.filter((c) => !HIDE_WITH_PANEL.has(c.key)) : COLS);
   const nav = () => cols().filter((c) => c.key !== "open").map((c) => c.key); // keyboard-navigable columns
   const colOf = (k) => COLS.find((c) => c.key === k);
 
   const state = {
-    file: null, ds: null, data: null, mode: "grid",
+    file: null, ds: null, data: null, mode: "overview",
     settings: { value_threshold: 10, feasibility_threshold: 10, top_n: 15 },
     filters: { q: "", activity: "", priority: "", chip: "" }, summaryEdited: false,
     overrides: {}, sort: { key: null, dir: 1 },
@@ -60,7 +61,7 @@
   if (EMBED && window.parent !== window && "ResizeObserver" in window) {
     let last = 0;
     new ResizeObserver(() => {
-      const h = Math.ceil(document.documentElement.scrollHeight);
+      const h = Math.ceil(document.body.getBoundingClientRect().height); // content height (scrollHeight never shrinks below the frame)
       if (h !== last) { last = h; window.parent.postMessage({ type: "par-generator:height", height: h }, "*"); }
     }).observe(document.body);
   }
@@ -225,8 +226,8 @@
   function cellHTML(f, c) {
     const locked = c.edit && f.discarded;
     const cls = [c.num ? "num" : "", c.edit ? "is-editable" : "", locked ? "is-locked" : "", c.edit && isEdited(f, c.key) ? "is-edited" : "",
-      c.sticky ? "is-sticky" : ""].filter(Boolean).join(" ");
-    const attrs = `data-col="${c.key}" role="gridcell" class="${cls}"`;
+      c.sticky ? "is-sticky" : "", c.lastSticky ? "is-sticky-last" : "", c.edit === "text" ? "is-text" : ""].filter(Boolean).join(" ");
+    const attrs = `data-col="${c.key}" role="gridcell" class="${cls}"${c.sticky ? ` style="left:${c.left}px"` : ""}`;
     switch (c.key) {
       case "open": {
         const open = state.panel === String(f.id);
@@ -240,6 +241,11 @@
           : `<td ${attrs} title="No recommendation yet"><span class="cp-reco">To write</span></td>`;
       }
       case "name": return `<td ${attrs} title="${esc(f.name)}">${esc(f.name)}</td>`;
+      case "solution": {
+        if (!f.solution) return `<td ${attrs}>${f.discarded ? "" : '<span class="cp-cell-empty">Add a solution…</span>'}</td>`;
+        const one = f.solution.replace(/\s*\n\s*/g, " · ");
+        return `<td ${attrs} title="${esc(f.solution.slice(0, 600))}">${esc(one)}</td>`;
+      }
       case "activity": return `<td ${attrs} title="${esc(f.activity_raw)}">${esc(f.activity)}</td>`;
       case "quadrant": {
         if (f.discarded) return `<td ${attrs}><span class="cp-badge cp-badge-neutral">Discarded</span></td>`;
@@ -264,7 +270,7 @@
     const ariaSort = (k) => (state.sort.key === k ? (state.sort.dir > 0 ? "ascending" : "descending") : "none");
     $("grid").innerHTML = `<colgroup>${cols().map((c) => (c.w ? `<col style="width:${c.w}px">` : "<col>")).join("")}</colgroup>
       <thead><tr>${cols().map((c) => c.key === "open" ? '<th class="cp-grid-expand" aria-label="Open"></th>' :
-        `<th role="columnheader" data-sort="${c.key}" aria-sort="${ariaSort(c.key)}" class="${[c.num ? "num" : "", c.edit ? "is-editable" : "", c.sticky ? "is-sticky" : ""].join(" ")}"
+        `<th role="columnheader" data-sort="${c.key}" aria-sort="${ariaSort(c.key)}" class="${[c.num ? "num" : "", c.edit ? "is-editable" : "", c.sticky ? "is-sticky" : "", c.lastSticky ? "is-sticky-last" : ""].join(" ")}"${c.sticky ? ` style="left:${c.left}px"` : ""}
           title="${c.edit ? "Editable — " : ""}Sort by ${c.label}">${c.edit ? '<svg class="cp-pen" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>' : ""}${c.label}${sortMark(c.key)}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((f) => `<tr data-id="${esc(f.id)}" class="${f.discarded ? "is-discarded" : ""}${f.rank ? " is-top" : ""}${state.panel === String(f.id) ? " is-open" : ""}">${cols().map((c) => cellHTML(f, c)).join("")}</tr>`).join("")
         || `<tr><td colspan="${cols().length}" class="cp-empty">No findings match these filters.</td></tr>`}</tbody>`;
@@ -328,6 +334,30 @@
     if (!canEdit(id, col)) { if (state.active) flash("This cell is read-only."); return; }
     const f = byId().get(String(id)), c = colOf(col), td = cellEl(id, col);
     let input;
+    if (c.edit === "text") {
+      // Long text: a box floating over the cell (wider and taller than the cell).
+      input = document.createElement("textarea");
+      input.value = initial !== undefined ? initial : f[col] || "";
+      input.className = "cp-cell-popover";
+      input.rows = 5;
+      const r = td.getBoundingClientRect();
+      Object.assign(input.style, { left: `${Math.max(8, Math.min(r.left, window.innerWidth - 428))}px`, top: `${Math.max(8, Math.min(r.top, window.innerHeight - 150))}px`, width: `${Math.max(r.width, 420)}px` });
+      input.setAttribute("aria-label", `${c.label} for finding ${id}`);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+        else if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); commitEdit(1, 0); }
+        else if (e.key === "Tab") { e.preventDefault(); commitEdit(0, e.shiftKey ? -1 : 1); }
+      });
+      input.addEventListener("blur", () => { if (state.editing && state.editing.input === input) commitEdit(0, 0); });
+      td.classList.add("is-editing");
+      document.body.appendChild(input);
+      state.editing = { id: String(id), col, td, input, popover: true };
+      input.focus();
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+      wrap.addEventListener("scroll", () => { if (state.editing && state.editing.input === input) commitEdit(0, 0); }, { once: true });
+      return;
+    }
     if (c.edit === "level") {
       input = document.createElement("select");
       input.innerHTML = ["", ...LEVELS].map((o) => `<option value="${o}"${(f[col] || "") === o ? " selected" : ""}>${o || "Not set"}</option>`).join("");
@@ -348,8 +378,10 @@
     if (input.tagName === "SELECT" && typeof input.showPicker === "function") { try { input.showPicker(); } catch (e) { /* not allowed */ } }
   }
   function cancelEdit() {
-    if (!state.editing) return;
-    state.editing = null;
+    const ed = state.editing;
+    if (!ed) return;
+    state.editing = null; // before removing the box: its blur handler must see nothing to save
+    if (ed.popover && ed.input.isConnected) ed.input.remove();
     renderGrid();
     $("gridWrap").focus({ preventScroll: true });
   }
@@ -357,6 +389,7 @@
     const ed = state.editing;
     if (!ed) return;
     state.editing = null;
+    if (ed.popover && ed.input.isConnected) ed.input.remove();
     const ok = setCell(ed.id, ed.col, ed.input.value);
     if (!ok) flash("Enter a number, or leave the cell empty to clear it.", true);
     renderGrid();
@@ -399,6 +432,8 @@
     if (c.edit === "num") {
       if (raw === "") v = null;
       else { v = Number(raw.replace(/\s/g, "").replace(",", ".")); if (!Number.isFinite(v)) return false; }
+    } else if (c.edit === "text") {
+      v = raw === "" ? null : raw.slice(0, 20000);
     } else {
       if (raw === "") v = null;
       else { v = LEVELS.find((l) => l.toLowerCase().startsWith(raw.toLowerCase())) || null; if (!v) return false; } // "m", "Med", "medium"
@@ -498,13 +533,14 @@
       const c = colOf(state.active.col);
       if (!canEdit(state.active.id, state.active.col)) { flash("Read-only here. Press Enter to open the finding and write its texts."); return; }
       e.preventDefault();
-      if (c.edit === "level") { // type L, M or H
+      if (c.edit === "text") startEdit(k);
+      else if (c.edit === "level") { // type L, M or H
         if (setCell(state.active.id, state.active.col, k)) { renderGrid(); move(1, 0); } else flash("Type L, M or H — or press Enter to pick.", true);
       } else startEdit(k);
     }
   });
   wrap.addEventListener("focusout", (e) => {
-    if (state.editing && !wrap.contains(e.relatedTarget)) commitEdit(0, 0);
+    if (state.editing && !state.editing.popover && !wrap.contains(e.relatedTarget)) commitEdit(0, 0);
   });
 
   // Paste a block of cells copied from Excel (tab-separated rows), starting at the active cell.
