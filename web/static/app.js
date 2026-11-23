@@ -223,9 +223,10 @@
     });
   }
 
-  // 0–20 scale in five steps: <4, 4–7, 8–11, 12–15, 16+.
-  const HEAT_EDGES = [4, 8, 12, 16];
-  const heatBin = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null : HEAT_EDGES.filter((e) => Number(v) >= e).length);
+  // Position on the 0–20 scale (0 = red, 0.5 = yellow, 1 = green); CSS blends the colour.
+  const HEAT_MAX = 20;
+  const heatT = (v) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? null
+    : Math.round(Math.max(0, Math.min(1, Number(v) / HEAT_MAX)) * 1000) / 1000);
 
   function cellHTML(f, c) {
     const locked = c.edit && f.discarded;
@@ -260,9 +261,9 @@
       case "expected_value": case "feasibility": case "score": {
         const auto = c.key === "score" && f.score !== null && !isEdited(f, "score");
         const est = f.scores_estimated && c.key !== "score";
-        // Colour scale on Value and Feasibility: one green hue, darker = higher = better.
-        const heat = c.key !== "score" && !f.discarded ? heatBin(f[c.key]) : null;
-        const a2 = heat === null ? attrs : attrs.replace('class="', `class="heat-${heat} `);
+        // Red → yellow → green colour scale on Value and Feasibility (higher is better).
+        const t = c.key !== "score" && !f.discarded ? heatT(f[c.key]) : null;
+        const a2 = t === null ? attrs : attrs.replace('class="', 'class="heat ') + ` style="--t:${t}"`;
         return `<td ${a2} title="${est ? "Estimated from Gain / Complexity" : auto ? "Value × feasibility" : ""}">${fmt(f[c.key])}${est ? '<i class="cp-est">est.</i>' : ""}</td>`;
       }
       default: return `<td ${attrs}>${esc(f[c.key] ?? "")}</td>`;
