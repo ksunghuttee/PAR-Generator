@@ -67,7 +67,8 @@
       <div class="cp-page">
         <div class="cp-page-head">
           <div class="cp-mode-switch" role="tablist" aria-label="View">
-            <button type="button" role="tab" class="cp-mode-btn active" data-mode="review" aria-selected="true">Review</button>
+            <button type="button" role="tab" class="cp-mode-btn active" data-mode="grid" aria-selected="true" disabled>Findings</button>
+            <button type="button" role="tab" class="cp-mode-btn" data-mode="overview" aria-selected="false" disabled>Overview</button>
             <button type="button" role="tab" class="cp-mode-btn" data-mode="export" aria-selected="false" disabled>Report &amp; export</button>
           </div>
           <div class="cp-page-head-right">
@@ -93,36 +94,42 @@
           <p class="cp-empty">After upload you can review the data checks and priorities, then build the branded Word report and PowerPoint restitution.</p>
         </section>
 
-        <!-- Review -->
-        <div class="cp-split" id="reviewView" hidden>
-          <section class="cp-results-pane" aria-label="Findings">
-            <div class="cp-searchbar">
+        <!-- Findings: spreadsheet -->
+        <section class="cp-sheet" id="gridView" hidden aria-label="Findings">
+          <div class="cp-sheet-toolbar">
+            <div class="cp-searchbar cp-sheet-search">
               <svg class="cp-searchbar-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-              <input class="cp-search-input" id="search" placeholder="Search findings by name, ID or activity…" aria-label="Search findings">
+              <input class="cp-search-input" id="search" placeholder="Search by name, ID, activity or type…" aria-label="Search findings">
             </div>
-            <div class="cp-filters">
-              <select class="cp-select" id="fActivity" aria-label="Filter by activity"><option value="">All activities</option></select>
-              <select class="cp-select" id="fPriority" aria-label="Filter by priority">
-                <option value="">All priorities</option>
-                <option value="quick_win">Quick wins</option>
-                <option value="strategic">Strategic</option>
-                <option value="filler">Fillers</option>
-                <option value="deprioritise">Deprioritise</option>
-                <option value="unscored">Not scored</option>
-                <option value="discarded">Discarded</option>
-              </select>
-            </div>
-            <div class="cp-examples" id="chips">
+            <select class="cp-select cp-sheet-select" id="fActivity" aria-label="Filter by activity"><option value="">All activities</option></select>
+            <select class="cp-select cp-sheet-select" id="fPriority" aria-label="Filter by priority">
+              <option value="">All priorities</option>
+              <option value="quick_win">Quick wins</option>
+              <option value="strategic">Strategic</option>
+              <option value="filler">Fillers</option>
+              <option value="deprioritise">Deprioritise</option>
+              <option value="unscored">Not scored</option>
+              <option value="discarded">Discarded</option>
+            </select>
+            <div class="cp-examples cp-sheet-chips" id="chips">
               <button type="button" class="cp-chip" data-chip="top">Top items</button>
-              <button type="button" class="cp-chip" data-chip="open">Still open</button>
+              <button type="button" class="cp-chip" data-chip="edited">Edited</button>
               <button type="button" class="cp-chip" data-chip="missing">Missing data</button>
-              <button type="button" class="cp-chip" data-chip="noreco">No recommendation</button>
+              <button type="button" class="cp-chip" data-chip="open">Still open</button>
             </div>
-            <div class="cp-result-bar"><div class="cp-result-count" id="resultCount"></div></div>
-            <ul class="cp-result-list" id="resultList"></ul>
-          </section>
-          <section class="cp-detail-pane" id="detailPane" aria-live="polite"></section>
-        </div>
+          </div>
+          <div class="cp-grid-wrap" id="gridWrap" tabindex="0" aria-label="Findings spreadsheet. Use the arrow keys to move, Enter or type to edit.">
+            <table class="cp-grid" id="grid" role="grid"></table>
+          </div>
+          <div class="cp-grid-status">
+            <span id="gridCount"></span>
+            <span id="gridMsg" aria-live="polite"></span>
+            <span class="cp-grid-hint">Double-click or type to edit · Enter saves · Esc cancels · Delete clears · paste a block from Excel with Ctrl/Cmd+V</span>
+          </div>
+        </section>
+
+        <!-- Overview -->
+        <section class="cp-overview" id="overviewView" hidden aria-label="Overview"></section>
 
         <!-- Report & export -->
         <div class="cp-split" id="exportView" hidden>

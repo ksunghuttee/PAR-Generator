@@ -1,7 +1,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const fmt = (n) => (n === null || n === undefined ? "–" : Number.isInteger(n) ? String(n) : n.toFixed(1));
+  const fmt = (n) => (n === null || n === undefined ? "" : Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
   const EMBED = document.documentElement.classList.contains("is-embed");
   // The interactive preview sets window.PAR_LOCAL and analyses in the browser (engine.js);
   // the real app posts to the FastAPI server, which also builds the documents.
@@ -19,25 +19,36 @@
     diamond: '<path d="M0 -6L6 0L0 6L-6 0Z"/>', triangle: '<path d="M0 -5.8L5.5 4L-5.5 4Z"/>',
   };
   const swatch = (q) => `<svg class="sw--${q}" width="12" height="12" viewBox="-7 -7 14 14" aria-hidden="true">${SHAPES[PARCharts.QUAD[q].shape]}</svg>`;
+  const LEVELS = ["Low", "Medium", "High"];
+
+  // Spreadsheet columns. `edit` marks the five editable ones.
+  const COLS = [
+    { key: "expand", label: "", w: 30 },
+    { key: "id", label: "ID", w: 56, num: true, sticky: true },
+    { key: "activity", label: "Activity", w: 140 },
+    { key: "name", label: "Finding", w: 0 }, // takes the remaining width
+    { key: "solution_type", label: "Solution type", w: 160 },
+    { key: "status", label: "Status", w: 130 },
+    { key: "expected_value", label: "Value", w: 76, num: true, edit: "num" },
+    { key: "feasibility", label: "Feasibility", w: 108, num: true, edit: "num" },
+    { key: "score", label: "Score", w: 86, num: true, edit: "num" },
+    { key: "complexity", label: "Complexity", w: 116, edit: "level" },
+    { key: "gain", label: "Gain", w: 92, edit: "level" },
+    { key: "quadrant", label: "Priority", w: 112 },
+    { key: "rank", label: "Top", w: 54, num: true },
+  ];
+  const NAV = COLS.filter((c) => c.key !== "expand").map((c) => c.key); // keyboard-navigable columns
+  const colOf = (k) => COLS.find((c) => c.key === k);
 
   const state = {
-    file: null, ds: null, data: null, mode: "review", selected: "overview",
+    file: null, ds: null, data: null, mode: "grid",
     settings: { value_threshold: 10, feasibility_threshold: 10, top_n: 15 },
     filters: { q: "", activity: "", priority: "", chip: "" }, summaryEdited: false,
-    overrides: {}, editing: false,
+    overrides: {}, sort: { key: null, dir: 1 }, expanded: new Set(),
+    active: null, // { id, col }
+    editing: null, // { id, col, td, input, original }
+    pendingRender: false,
   };
-
-  // ---- edits: kept per workbook in this browser (a convenience; the workbook is never changed) ----
-  const editKey = () => (state.file ? `par-edits:${state.file.name}:${state.file.size}` : "par-edits:sample");
-  function loadEdits() {
-    try { return JSON.parse(localStorage.getItem(editKey()) || "{}") || {}; } catch (e) { return {}; }
-  }
-  function saveEdits() {
-    try {
-      if (Object.keys(state.overrides).length) localStorage.setItem(editKey(), JSON.stringify(state.overrides));
-      else localStorage.removeItem(editKey());
-    } catch (e) { /* storage unavailable: edits still apply for this visit */ }
-  }
 
   // ---- embedding: report height to the host frame ---------------------------
   if (EMBED && window.parent !== window && "ResizeObserver" in window) {
@@ -48,10 +59,21 @@
     }).observe(document.body);
   }
   $("themeToggle")?.addEventListener("click", () => {
-    const light = document.documentElement.classList.contains("theme-light");
-    window.PARTheme(light ? "dark" : "light");
-    if (state.data && state.mode === "review" && state.selected === "overview") drawMatrix();
+    window.PARTheme(document.documentElement.classList.contains("theme-light") ? "dark" : "light");
+    if (state.mode === "overview") drawMatrix();
   });
+
+  // ---- edits: kept per workbook in this browser (the workbook itself is never changed) ----
+  const editKey = () => (state.file ? `par-edits:${state.file.name}:${state.file.size}` : "par-edits:sample");
+  function loadEdits() {
+    try { return JSON.parse(localStorage.getItem(editKey()) || "{}") || {}; } catch (e) { return {}; }
+  }
+  function saveEdits() {
+    try {
+      if (Object.keys(state.overrides).length) localStorage.setItem(editKey(), JSON.stringify(state.overrides));
+      else localStorage.removeItem(editKey());
+    } catch (e) { /* storage unavailable: edits still apply for this visit */ }
+  }
 
   // ---- data -------------------------------------------------------------------
   function meta() {
@@ -80,9 +102,8 @@
       state.file = file;
       if (LOCAL) state.ds = PAREngine.parse(await file.arrayBuffer(), file.name);
       state.overrides = loadEdits();
-      state.editing = false;
+      state.editing = null; state.active = null; state.expanded.clear();
       state.data = await analyze();
-      state.selected = "overview";
       state.summaryEdited = false;
       state.filters = { q: "", activity: "", priority: "", chip: "" };
       onData(true);
@@ -94,17 +115,24 @@
     }
   }
 
-  let timer;
-  function reanalyze() {
+  let timer, seq = 0;
+  function reanalyze(delay) {
     clearTimeout(timer);
-    timer = setTimeout(async () => {
-      try { state.data = await analyze(); onData(false); } catch (err) { showError(err.message); }
-    }, LOCAL ? 0 : 300);
+    const run = async () => {
+      const mine = ++seq;
+      try {
+        const data = await analyze();
+        if (mine !== seq) return; // a newer request superseded this one
+        state.data = data;
+        onData(false);
+      } catch (err) { showError(err.message); }
+    };
+    if (LOCAL) run(); else timer = setTimeout(run, delay ?? 250);
   }
 
   function onData(fresh) {
     $("emptyState").hidden = true;
-    document.querySelector('[data-mode="export"]').disabled = false;
+    document.querySelectorAll(".cp-mode-btn").forEach((b) => { b.disabled = false; });
     $("uploadLabel").textContent = "Replace workbook";
     if (fresh) {
       $("search").value = "";
@@ -114,11 +142,8 @@
       document.querySelectorAll(".cp-chip").forEach((c) => c.classList.remove("active"));
     }
     renderMeta();
-    renderList();
-    if (state.mode === "review") {
-      if (state.selected === "overview") (fresh || !$("ovStats") ? renderOverview() : updateOverview());
-      else renderFinding(state.selected);
-    }
+    if (state.editing) state.pendingRender = true; else renderGrid();
+    if (state.mode === "overview") (fresh || !$("ovStats") ? renderOverview() : updateOverview());
     renderExport();
     setMode(state.mode);
   }
@@ -130,132 +155,410 @@
       <span><b>${s.quadrants.quick_win}</b> quick wins</span>
       <span class="cp-corpus-source" title="Source: ${esc(state.data.file_name)}">${esc(state.data.file_name)}</span>`;
     const n = Object.keys(state.overrides).length;
-    if (n) {
-      const b = document.createElement("button");
-      b.type = "button"; b.className = "cp-link"; b.textContent = `Reset all edits (${n})`;
-      let armed = false, t;
-      b.addEventListener("click", () => {
-        if (!armed) { // two-step confirm without a browser dialog
-          armed = true; b.textContent = `Click again to discard ${n} edit${n === 1 ? "" : "s"}`;
-          t = setTimeout(() => { armed = false; b.textContent = `Reset all edits (${n})`; }, 4000);
-          return;
-        }
-        clearTimeout(t);
-        state.overrides = {}; state.editing = false; saveEdits(); reanalyze();
-      });
-      $("corpusMeta").appendChild(b);
-    }
+    if (!n) return;
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "cp-link"; b.textContent = `Reset all edits (${n})`;
+    let armed = false, t;
+    b.addEventListener("click", () => {
+      if (!armed) { // two-step confirm without a browser dialog
+        armed = true; b.textContent = `Click again to discard ${n} edited row${n === 1 ? "" : "s"}`;
+        t = setTimeout(() => { armed = false; b.textContent = `Reset all edits (${n})`; }, 4000);
+        return;
+      }
+      clearTimeout(t);
+      state.overrides = {}; saveEdits(); reanalyze(0);
+    });
+    $("corpusMeta").appendChild(b);
   }
 
-  // ---- list -----------------------------------------------------------------------
+  // ---- spreadsheet ---------------------------------------------------------------
   const byId = () => new Map(state.data.findings.map((f) => [String(f.id), f]));
   const priorityOf = (f) => (f.discarded ? "discarded" : f.quadrant || "unscored");
-  function badgeFor(f) {
-    if (f.discarded) return '<span class="cp-badge cp-badge-neutral">Discarded</span>';
-    if (!f.quadrant) return '<span class="cp-badge cp-badge-neutral">Not scored</span>';
-    const p = PRIORITY[f.quadrant];
-    return `<span class="cp-badge ${p.badge}">${p.label}</span>`;
-  }
+  const isEdited = (f, k) => (f.edited || []).includes(k);
   function chipMatch(f, chip) {
     if (!chip) return true;
     if (chip === "top") return !!f.rank;
+    if (chip === "edited") return !!(f.edited && f.edited.length);
     if (chip === "open") return !f.discarded && f.status && !["analysis completed", "closed", "done"].includes(f.status.toLowerCase());
     if (chip === "missing") return !f.discarded && (!f.complexity || !f.gain || !f.solution_type || f.score === null);
-    if (chip === "noreco") return !f.discarded && !f.recommendation;
+    return true;
+  }
+  const cmpId = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true });
+  const LEVEL_RANK = { Low: 1, Medium: 2, High: 3 };
+  const QUAD_RANK = { quick_win: 1, strategic: 2, filler: 3, deprioritise: 4 };
+  function sortValue(f, k) {
+    if (k === "complexity" || k === "gain") return LEVEL_RANK[f[k]] ?? null;
+    if (k === "quadrant") return f.discarded ? 9 : QUAD_RANK[f.quadrant] ?? 8;
+    return f[k];
+  }
+
+  function visibleRows() {
+    const { q, activity, priority, chip } = state.filters;
+    const needle = q.trim().toLowerCase();
+    const rows = state.data.findings
+      .filter((f) => !needle || [f.id, f.name, f.activity, f.solution_type, f.issue, f.status].join(" ").toLowerCase().includes(needle))
+      .filter((f) => !activity || f.activity === activity)
+      .filter((f) => !priority || priorityOf(f) === priority)
+      .filter((f) => chipMatch(f, chip));
+    const { key, dir } = state.sort;
+    if (!key) return rows.sort((a, b) => a.activity_order - b.activity_order || cmpId(a.id, b.id)); // workbook order
+    return rows.sort((a, b) => {
+      const x = sortValue(a, key), y = sortValue(b, key);
+      if (x === null || x === undefined || x === "") return 1; // blanks last either way
+      if (y === null || y === undefined || y === "") return -1;
+      const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
+      return c * dir || cmpId(a.id, b.id);
+    });
+  }
+
+  function cellHTML(f, c) {
+    const locked = c.edit && f.discarded;
+    const cls = [c.num ? "num" : "", c.edit ? "is-editable" : "", locked ? "is-locked" : "", c.edit && isEdited(f, c.key) ? "is-edited" : "",
+      c.sticky ? "is-sticky" : ""].filter(Boolean).join(" ");
+    const attrs = `data-col="${c.key}" role="gridcell" class="${cls}"`;
+    switch (c.key) {
+      case "expand": {
+        const open = state.expanded.has(String(f.id));
+        return `<td class="cp-grid-expand"><button type="button" class="cp-expand" data-expand="${esc(f.id)}" aria-expanded="${open}" aria-label="${open ? "Hide" : "Show"} details for finding ${esc(f.id)}" tabindex="-1">${open ? "▾" : "▸"}</button></td>`;
+      }
+      case "name": return `<td ${attrs} title="${esc(f.name)}">${esc(f.name)}</td>`;
+      case "activity": return `<td ${attrs} title="${esc(f.activity_raw)}">${esc(f.activity)}</td>`;
+      case "quadrant": {
+        if (f.discarded) return `<td ${attrs}><span class="cp-badge cp-badge-neutral">Discarded</span></td>`;
+        if (!f.quadrant) return `<td ${attrs}><span class="cp-badge cp-badge-neutral">Not scored</span></td>`;
+        const p = PRIORITY[f.quadrant];
+        return `<td ${attrs}><span class="cp-badge ${p.badge}">${p.label}</span></td>`;
+      }
+      case "expected_value": case "feasibility": case "score": {
+        const auto = c.key === "score" && f.score !== null && !isEdited(f, "score");
+        const est = f.scores_estimated && c.key !== "score";
+        return `<td ${attrs} title="${est ? "Estimated from Gain / Complexity" : auto ? "Value × feasibility" : ""}">${fmt(f[c.key])}${est ? '<i class="cp-est">est.</i>' : ""}</td>`;
+      }
+      default: return `<td ${attrs}>${esc(f[c.key] ?? "")}</td>`;
+    }
+  }
+
+  function detailHTML(f) {
+    const notes = [f.next_action, f.comments].filter((x) => x && x.toLowerCase() !== "closed").join(" — ");
+    const kv = [["Retrofit", f.retrofit], ["Global adoption", f.global_adoption], ["Owner", f.owner], ["Theme", f.theme],
+      ["Next action", f.next_action], ["Requires MA support", f.requires_support]].filter(([, v]) => v);
+    return `<tr class="cp-grid-detail"><td></td><td colspan="${COLS.length - 1}"><div class="cp-grid-detail-body">
+      <div><h3 class="cp-section-title">Finding</h3><p class="cp-text"><b>${esc(f.name)}</b></p></div>
+      <div><h3 class="cp-section-title">Issue / pain point</h3><p class="cp-text">${esc(f.issue || "–")}</p></div>
+      <div><h3 class="cp-section-title">Solution</h3><p class="cp-text">${esc(f.solution || "–")}</p></div>
+      <div><h3 class="cp-section-title">Manhattan recommendation</h3>${f.recommendation ? `<p class="cp-text">${esc(f.recommendation)}</p>` :
+        `<div class="cp-placeholder">Not written yet. The report shows a highlighted placeholder here.${notes ? `<p>Analyst notes: ${esc(notes)}</p>` : ""}</div>`}</div>
+      ${f.client_comment ? `<div><h3 class="cp-section-title">Client feedback</h3><p class="cp-text">${esc(f.client_comment)}</p></div>` : ""}
+      ${kv.length ? `<div><h3 class="cp-section-title">Details</h3><p class="cp-text">${kv.map(([k, v]) => `<span class="cp-kv-inline"><b>${k}:</b> ${esc(v)}</span>`).join(" ")}</p></div>` : ""}
+    </div></td></tr>`;
+  }
+
+  function renderGrid() {
+    state.pendingRender = false;
+    const wrap = $("gridWrap"), scroll = [wrap.scrollLeft, wrap.scrollTop];
+    const rows = visibleRows();
+    const sortMark = (k) => (state.sort.key === k ? (state.sort.dir > 0 ? " ▲" : " ▼") : "");
+    const ariaSort = (k) => (state.sort.key === k ? (state.sort.dir > 0 ? "ascending" : "descending") : "none");
+    $("grid").innerHTML = `<colgroup>${COLS.map((c) => (c.w ? `<col style="width:${c.w}px">` : "<col>")).join("")}</colgroup>
+      <thead><tr>${COLS.map((c) => c.key === "expand" ? '<th class="cp-grid-expand" aria-label="Details"></th>' :
+        `<th role="columnheader" data-sort="${c.key}" aria-sort="${ariaSort(c.key)}" class="${[c.num ? "num" : "", c.edit ? "is-editable" : "", c.sticky ? "is-sticky" : ""].join(" ")}"
+          title="${c.edit ? "Editable — " : ""}Sort by ${c.label}">${c.edit ? '<svg class="cp-pen" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>' : ""}${c.label}${sortMark(c.key)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((f) => `<tr data-id="${esc(f.id)}" class="${f.discarded ? "is-discarded" : ""}${f.rank ? " is-top" : ""}">${COLS.map((c) => cellHTML(f, c)).join("")}</tr>${state.expanded.has(String(f.id)) ? detailHTML(f) : ""}`).join("")
+        || `<tr><td colspan="${COLS.length}" class="cp-empty">No findings match these filters.</td></tr>`}</tbody>`;
+    const edits = state.data.findings.filter((f) => f.edited && f.edited.length).length;
+    const filtered = state.filters.q || state.filters.activity || state.filters.priority || state.filters.chip;
+    $("gridCount").textContent = `${rows.length} of ${state.data.findings.length} rows${filtered ? " (filtered)" : ""}` + (edits ? ` · ${edits} edited` : "");
+    wrap.style.setProperty("--grid-w", `${wrap.clientWidth}px`);
+    wrap.scrollLeft = scroll[0]; wrap.scrollTop = scroll[1];
+    if (state.active) markActive(false);
+  }
+
+  // Active cell
+  const rowEl = (id) => $("grid").querySelector(`tr[data-id="${CSS.escape(String(id))}"]`);
+  const cellEl = (id, col) => rowEl(id)?.querySelector(`td[data-col="${col}"]`);
+  function markActive(scroll = true) {
+    $("grid").querySelectorAll("td.is-active").forEach((td) => td.classList.remove("is-active"));
+    const td = state.active && cellEl(state.active.id, state.active.col);
+    if (!td) return;
+    td.classList.add("is-active");
+    if (scroll) td.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+  function setActive(id, col, scroll = true) {
+    state.active = { id: String(id), col };
+    markActive(scroll);
+  }
+  function move(dr, dc) {
+    const ids = [...$("grid").querySelectorAll("tbody tr[data-id]")].map((tr) => tr.dataset.id);
+    if (!ids.length) return;
+    if (!state.active) { setActive(ids[0], "expected_value"); return; }
+    const r = Math.max(0, Math.min(ids.length - 1, ids.indexOf(state.active.id) + dr));
+    const c = Math.max(0, Math.min(NAV.length - 1, NAV.indexOf(state.active.col) + dc));
+    setActive(ids[r < 0 ? 0 : r], NAV[c]);
+  }
+
+  // Editing
+  function canEdit(id, col) {
+    const f = byId().get(String(id));
+    return !!(f && colOf(col)?.edit && !f.discarded);
+  }
+  function startEdit(initial) {
+    const { id, col } = state.active || {};
+    if (!canEdit(id, col)) { if (state.active) flash("This cell is read-only."); return; }
+    const f = byId().get(String(id)), c = colOf(col), td = cellEl(id, col);
+    let input;
+    if (c.edit === "level") {
+      input = document.createElement("select");
+      input.innerHTML = ["", ...LEVELS].map((o) => `<option value="${o}"${(f[col] || "") === o ? " selected" : ""}>${o || "Not set"}</option>`).join("");
+      input.addEventListener("change", () => commitEdit(1, 0));
+    } else {
+      input = document.createElement("input");
+      input.type = "text"; input.inputMode = "decimal";
+      input.value = initial !== undefined ? initial : fmt(f[col]);
+    }
+    input.className = "cp-cell-input";
+    input.setAttribute("aria-label", `${c.label} for finding ${id}`);
+    td.classList.add("is-editing");
+    td.textContent = "";
+    td.appendChild(input);
+    state.editing = { id: String(id), col, td, input };
+    input.focus();
+    if (input.tagName === "INPUT" && initial === undefined) input.select();
+    if (input.tagName === "SELECT" && typeof input.showPicker === "function") { try { input.showPicker(); } catch (e) { /* not allowed */ } }
+  }
+  function cancelEdit() {
+    if (!state.editing) return;
+    state.editing = null;
+    renderGrid();
+    $("gridWrap").focus({ preventScroll: true });
+  }
+  function commitEdit(dr, dc) {
+    const ed = state.editing;
+    if (!ed) return;
+    state.editing = null;
+    const ok = setCell(ed.id, ed.col, ed.input.value);
+    if (!ok) flash("Enter a number, or leave the cell empty to clear it.", true);
+    renderGrid();
+    if (dr || dc) move(dr, dc);
+    $("gridWrap").focus({ preventScroll: true });
+  }
+
+  /** Record one edited value. Returns false if the value is not valid for the column. */
+  function setCell(id, col, raw, batch) {
+    const f = byId().get(String(id)), c = colOf(col);
+    if (!f || !c || !c.edit || f.discarded) return false;
+    let v;
+    raw = String(raw ?? "").trim();
+    if (c.edit === "num") {
+      if (raw === "") v = null;
+      else { v = Number(raw.replace(/\s/g, "").replace(",", ".")); if (!Number.isFinite(v)) return false; }
+    } else {
+      if (raw === "") v = null;
+      else { v = LEVELS.find((l) => l.toLowerCase().startsWith(raw.toLowerCase())) || null; if (!v) return false; } // "m", "Med", "medium"
+    }
+    const key = String(f.id), prev = state.overrides[key] || {};
+    const next = { ...prev };
+    if (col === "score") {
+      if (v === null) delete next.score; // back to value × feasibility
+      else next.score = v;
+    } else if ((f[col] ?? null) !== v || col in prev) {
+      next[col] = v;
+    }
+    if (JSON.stringify(next) === JSON.stringify(prev)) return true;
+    if (Object.keys(next).length) state.overrides[key] = next; else delete state.overrides[key];
+    // Optimistic update so the grid shows the value straight away.
+    f[col] = v;
+    if (col !== "score" && !(next && "score" in next) && (col === "expected_value" || col === "feasibility")) {
+      f.score = f.expected_value !== null && f.feasibility !== null ? f.expected_value * f.feasibility : null;
+    }
+    f.edited = [...new Set([...(f.edited || []), col])];
+    if (!batch) { saveEdits(); reanalyze(); }
     return true;
   }
 
-  function renderList() {
-    const { q, activity, priority, chip } = state.filters;
-    const needle = q.trim().toLowerCase();
-    const maxScore = Math.max(1, ...state.data.findings.map((f) => f.score || 0));
-    const rows = state.data.findings
-      .filter((f) => !needle || [f.id, f.name, f.activity, f.solution_type, f.issue].join(" ").toLowerCase().includes(needle))
-      .filter((f) => !activity || f.activity === activity)
-      .filter((f) => !priority || priorityOf(f) === priority)
-      .filter((f) => chipMatch(f, chip))
-      .sort((a, b) => (a.discarded - b.discarded) || ((b.score ?? -1e9) - (a.score ?? -1e9)) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
-    const filtered = needle || activity || priority || chip;
-    $("resultCount").textContent = `${rows.length} finding${rows.length === 1 ? "" : "s"}${filtered ? " match" : ""}, highest score first`;
-    const pin = `<li><button type="button" class="cp-result cp-result-pin${state.selected === "overview" ? " active" : ""}" data-id="overview">
-      <div class="cp-result-head"><span class="cp-result-name">Findings overview</span><span class="cp-badge cp-badge-config">Summary</span></div>
-      <div class="cp-result-meta"><span class="cp-result-area">Checks, priority matrix, top items, breakdown</span></div></button></li>`;
-    $("resultList").innerHTML = pin + rows.map((f) => `<li><button type="button" class="cp-result${f.discarded ? " is-discarded" : ""}${String(state.selected) === String(f.id) ? " active" : ""}" data-id="${esc(f.id)}">
-      <div class="cp-result-head"><span class="cp-result-name">${esc(f.name)}</span>${badgeFor(f)}</div>
-      <div class="cp-result-meta"><span class="cp-result-area">#${esc(f.id)} · ${esc(f.activity).toUpperCase()}</span>
-        <span>${f.score !== null ? `score ${fmt(f.score)}${f.rank ? ` · top ${f.rank}` : ""}` : esc(f.status || "")}${f.edited && f.edited.length ? ' · <span class="cp-edited">edited</span>' : ""}</span></div>
-      <div class="cp-bar"><span class="cp-bar-on" style="width:${f.score ? (100 * f.score) / maxScore : 0}%"></span></div>
-    </button></li>`).join("") + (rows.length ? "" : '<li class="cp-empty">No findings match these filters.</li>');
+  let flashTimer;
+  function flash(msg, isError) {
+    const el = $("gridMsg");
+    el.textContent = msg;
+    el.classList.toggle("is-error", !!isError);
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => { el.textContent = ""; }, 4000);
   }
 
-  $("resultList").addEventListener("click", (e) => {
-    const b = e.target.closest(".cp-result");
-    if (b) select(b.dataset.id);
+  // Grid events
+  const grid = $("grid"), wrap = $("gridWrap");
+  if ("ResizeObserver" in window) new ResizeObserver(() => wrap.style.setProperty("--grid-w", `${wrap.clientWidth}px`)).observe(wrap);
+  grid.addEventListener("click", (e) => {
+    const exp = e.target.closest("[data-expand]");
+    if (exp) { toggleExpand(exp.dataset.expand); return; }
+    const th = e.target.closest("th[data-sort]");
+    if (th) {
+      // Click cycle: first direction (high→low for numbers and levels, A→Z for text), reverse, workbook order.
+      const k = th.dataset.sort;
+      const first = colOf(k).num || colOf(k).edit === "level" || k === "quadrant" ? (k === "quadrant" || k === "rank" || k === "id" ? 1 : -1) : 1;
+      if (state.sort.key !== k) state.sort = { key: k, dir: first };
+      else if (state.sort.dir === first) state.sort = { key: k, dir: -first };
+      else state.sort = { key: null, dir: 1 };
+      renderGrid();
+      return;
+    }
+    const td = e.target.closest("td[data-col]");
+    if (!td || td.classList.contains("is-editing")) return;
+    const id = td.parentElement.dataset.id;
+    if (state.editing) commitEdit(0, 0);
+    const already = state.active && state.active.id === id && state.active.col === td.dataset.col;
+    setActive(id, td.dataset.col, false);
+    wrap.focus({ preventScroll: true });
+    if (already && colOf(td.dataset.col).edit === "level") startEdit();
   });
-  function select(id) {
-    if (String(id) !== String(state.selected)) state.editing = false;
-    state.selected = id === "overview" ? "overview" : String(id);
-    setMode("review");
-    if (state.selected === "overview") renderOverview(); else renderFinding(state.selected);
-    renderList();
-    if (!EMBED || window.innerWidth < 900) $("detailPane").scrollTop = 0;
+  grid.addEventListener("dblclick", (e) => {
+    const td = e.target.closest("td[data-col]");
+    if (!td || td.classList.contains("is-editing")) return;
+    setActive(td.parentElement.dataset.id, td.dataset.col, false);
+    startEdit();
+  });
+  function toggleExpand(id) {
+    id = String(id);
+    if (state.expanded.has(id)) state.expanded.delete(id); else state.expanded.add(id);
+    if (state.editing) commitEdit(0, 0); else renderGrid();
   }
 
-  $("search").addEventListener("input", (e) => { state.filters.q = e.target.value; renderList(); });
-  $("fActivity").addEventListener("change", (e) => { state.filters.activity = e.target.value; renderList(); });
-  $("fPriority").addEventListener("change", (e) => { state.filters.priority = e.target.value; renderList(); });
+  wrap.addEventListener("keydown", (e) => {
+    if (state.editing) {
+      const ed = state.editing;
+      if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+      else if (e.key === "Enter") { e.preventDefault(); commitEdit(e.shiftKey ? -1 : 1, 0); }
+      else if (e.key === "Tab") { e.preventDefault(); commitEdit(0, e.shiftKey ? -1 : 1); }
+      else if (ed.input.tagName === "INPUT" && (e.key === "ArrowUp" || e.key === "ArrowDown")) { e.preventDefault(); commitEdit(e.key === "ArrowUp" ? -1 : 1, 0); }
+      return;
+    }
+    if (e.target !== wrap) return;
+    const k = e.key, mod = e.ctrlKey || e.metaKey;
+    if (k === "ArrowDown") { e.preventDefault(); move(1, 0); }
+    else if (k === "ArrowUp") { e.preventDefault(); move(-1, 0); }
+    else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) { e.preventDefault(); move(0, 1); }
+    else if (k === "ArrowLeft" || (k === "Tab" && e.shiftKey)) { e.preventDefault(); move(0, -1); }
+    else if (k === "Home") { e.preventDefault(); move(0, -NAV.length); }
+    else if (k === "End") { e.preventDefault(); move(0, NAV.length); }
+    else if (!state.active) { if (k.length === 1 || k === "Enter") { e.preventDefault(); move(0, 0); } }
+    else if (k === "Enter" || k === "F2") { e.preventDefault(); startEdit(); }
+    else if (k === " " && e.shiftKey) { e.preventDefault(); toggleExpand(state.active.id); }
+    else if ((k === "Delete" || k === "Backspace") && !mod) {
+      e.preventDefault();
+      if (!canEdit(state.active.id, state.active.col)) { flash("This cell is read-only."); return; }
+      setCell(state.active.id, state.active.col, ""); renderGrid();
+    } else if (mod && k.toLowerCase() === "c") {
+      const td = cellEl(state.active.id, state.active.col);
+      const text = td ? td.innerText.replace(/est\.$/, "").trim() : "";
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => flash("Copied"), () => {});
+    } else if (k.length === 1 && !mod && !e.altKey) {
+      const c = colOf(state.active.col);
+      if (!canEdit(state.active.id, state.active.col)) { flash("This cell is read-only."); return; }
+      e.preventDefault();
+      if (c.edit === "level") { // type L, M or H
+        if (setCell(state.active.id, state.active.col, k)) { renderGrid(); move(1, 0); } else flash("Type L, M or H — or press Enter to pick.", true);
+      } else startEdit(k);
+    }
+  });
+  wrap.addEventListener("focusout", (e) => {
+    if (state.editing && !wrap.contains(e.relatedTarget)) commitEdit(0, 0);
+  });
+
+  // Paste a block of cells copied from Excel (tab-separated rows), starting at the active cell.
+  wrap.addEventListener("paste", (e) => {
+    if (state.editing || !state.active) return;
+    const text = (e.clipboardData || window.clipboardData)?.getData("text") || "";
+    if (!text) return;
+    e.preventDefault();
+    const lines = text.replace(/\r/g, "").split("\n");
+    if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    const ids = [...grid.querySelectorAll("tbody tr[data-id]")].map((tr) => tr.dataset.id);
+    const r0 = ids.indexOf(state.active.id), c0 = NAV.indexOf(state.active.col);
+    let done = 0, skipped = 0;
+    lines.forEach((line, i) => {
+      line.split("\t").forEach((val, j) => {
+        const id = ids[r0 + i], col = NAV[c0 + j];
+        if (!id || !col) { skipped++; return; }
+        if (!canEdit(id, col)) { if (val.trim()) skipped++; return; }
+        if (setCell(id, col, val, true)) done++; else skipped++;
+      });
+    });
+    if (done) { saveEdits(); reanalyze(); }
+    renderGrid();
+    flash(`Pasted ${done} value${done === 1 ? "" : "s"}${skipped ? ` · ${skipped} skipped (read-only or not valid)` : ""}`, !done);
+  });
+
+  // Toolbar
+  $("search").addEventListener("input", (e) => { state.filters.q = e.target.value; renderGrid(); });
+  $("fActivity").addEventListener("change", (e) => { state.filters.activity = e.target.value; renderGrid(); });
+  $("fPriority").addEventListener("change", (e) => { state.filters.priority = e.target.value; renderGrid(); });
   $("chips").addEventListener("click", (e) => {
     const c = e.target.closest(".cp-chip");
     if (!c) return;
     state.filters.chip = state.filters.chip === c.dataset.chip ? "" : c.dataset.chip;
     document.querySelectorAll(".cp-chip").forEach((x) => x.classList.toggle("active", x.dataset.chip === state.filters.chip));
-    renderList();
+    renderGrid();
   });
+
+  /** Jump from the overview to a finding's row in the spreadsheet. */
+  function openFinding(id) {
+    id = String(id);
+    state.filters = { q: "", activity: "", priority: "", chip: "" };
+    $("search").value = ""; $("fActivity").value = ""; $("fPriority").value = "";
+    document.querySelectorAll(".cp-chip").forEach((x) => x.classList.remove("active"));
+    state.expanded.add(id);
+    setMode("grid");
+    renderGrid();
+    setActive(id, "expected_value");
+    wrap.focus({ preventScroll: true });
+  }
 
   // ---- overview -----------------------------------------------------------------
   function renderOverview() {
     const st = state.data.settings;
-    $("detailPane").innerHTML = `<div class="cp-detail">
+    $("overviewView").innerHTML = `<div class="cp-detail cp-overview-body">
       <header class="cp-detail-head">
         <div><h2 class="cp-detail-title">Findings overview</h2>
           <div class="cp-detail-sub"><span class="cp-badge cp-badge-config">PAR findings</span><span>${esc(state.data.file_name)}</span></div></div>
-        <button type="button" class="cp-btn" id="toExport">Report &amp; export</button>
       </header>
       <div class="cp-stats" id="ovStats"></div>
-      <p class="cp-source-note">Retained findings exclude items whose solution type is <b>Discarded</b>. Priorities come from the Feasibility-Gain tab, or are estimated from Gain and Complexity when it is missing.</p>
-      <div><h3 class="cp-section-title">Data checks</h3><ul class="cp-check-list" id="ovChecks"></ul></div>
-      <div>
-        <h3 class="cp-section-title">Prioritisation</h3>
-        <div class="cp-prio-controls">
-          <label class="cp-field"><span>Expected value ≥</span><input class="cp-input" type="number" id="vt" step="1" value="${st.value_threshold}"></label>
-          <label class="cp-field"><span>Feasibility ≥</span><input class="cp-input" type="number" id="ft" step="1" value="${st.feasibility_threshold}"></label>
-          <label class="cp-field"><span>Top items to detail</span><input class="cp-input" type="number" id="topn" min="1" max="40" step="1" value="${st.top_n}"></label>
+      <p class="cp-source-note">Retained findings exclude items whose solution type is <b>Discarded</b>. Priorities come from the Feasibility-Gain tab, or are estimated from Gain and Complexity when it is missing. Values edited in the Findings sheet are used everywhere.</p>
+      <div class="cp-two-col cp-two-col--wide">
+        <div class="cp-stack">
+          <div><h3 class="cp-section-title">Prioritisation</h3>
+            <div class="cp-prio-controls">
+              <label class="cp-field"><span>Expected value ≥</span><input class="cp-input" type="number" id="vt" step="1" value="${st.value_threshold}"></label>
+              <label class="cp-field"><span>Feasibility ≥</span><input class="cp-input" type="number" id="ft" step="1" value="${st.feasibility_threshold}"></label>
+              <label class="cp-field"><span>Top items to detail</span><input class="cp-input" type="number" id="topn" min="1" max="40" step="1" value="${st.top_n}"></label>
+            </div></div>
+          <ul class="cp-value-list cp-value-list--2" id="ovQuads"></ul>
+          <div id="pchart"></div>
+        </div>
+        <div class="cp-stack">
+          <div><h3 class="cp-section-title">Data checks</h3><ul class="cp-check-list" id="ovChecks"></ul></div>
+          <div><h3 class="cp-section-title">Top items <span id="ovTopNote"></span></h3><div class="cp-table-wrap"><table class="cp-table" id="ovTop"></table></div></div>
         </div>
       </div>
-      <ul class="cp-value-list" id="ovQuads"></ul>
-      <div id="pchart"></div>
-      <div><h3 class="cp-section-title">Top items <span id="ovTopNote"></span></h3><div class="cp-table-wrap"><table class="cp-table" id="ovTop"></table></div></div>
       <div class="cp-two-col">
         <div><h3 class="cp-section-title">By solution type</h3><div class="cp-hbars" id="ovTypes"></div></div>
         <div><h3 class="cp-section-title">By activity</h3><div class="cp-hbars cp-hbars--alt" id="ovActs"></div></div>
       </div>
     </div>`;
-    $("toExport").addEventListener("click", () => setMode("export"));
     [["vt", "value_threshold"], ["ft", "feasibility_threshold"], ["topn", "top_n"]].forEach(([id, key]) =>
       $(id).addEventListener("input", (e) => {
         if (e.target.value === "") return;
         state.settings[key] = Number(e.target.value);
         reanalyze();
       }));
-    $("ovChecks").addEventListener("click", (e) => { const b = e.target.closest(".cp-id"); if (b) select(b.dataset.id); });
+    $("ovChecks").addEventListener("click", (e) => { const b = e.target.closest(".cp-id"); if (b) openFinding(b.dataset.id); });
     $("ovQuads").addEventListener("click", (e) => {
       const b = e.target.closest("[data-q]");
       if (!b) return;
-      state.filters.priority = b.dataset.q;
-      $("fPriority").value = b.dataset.q;
-      renderList();
+      state.filters = { q: "", activity: "", priority: b.dataset.q, chip: "" };
+      $("search").value = ""; $("fActivity").value = ""; $("fPriority").value = b.dataset.q;
+      document.querySelectorAll(".cp-chip").forEach((x) => x.classList.remove("active"));
+      setMode("grid"); renderGrid();
     });
-    $("ovTop").addEventListener("click", (e) => { const r = e.target.closest("tr[data-id]"); if (r) select(r.dataset.id); });
+    $("ovTop").addEventListener("click", (e) => { const r = e.target.closest("tr[data-id]"); if (r) openFinding(r.dataset.id); });
     updateOverview();
   }
 
@@ -270,138 +573,34 @@
     const tone = { error: ["cp-badge-danger", "Error"], warning: ["cp-badge-warning", "Warning"], info: ["cp-badge-neutral", "Info"] };
     $("ovChecks").innerHTML = d.checks.map((c) => `<li class="cp-check-row"><span class="cp-badge ${tone[c.level][0]}">${tone[c.level][1]}</span>
       <div>${esc(c.message)}${c.ids && c.ids.length ? `<div class="cp-ids">${c.ids.slice(0, 40).map((i) =>
-        `<button type="button" class="cp-id" data-id="${esc(i)}" title="Open finding ${esc(i)}">${esc(i)}</button>`).join("")}${c.ids.length > 40 ? `<span class="cp-value-count">+${c.ids.length - 40}</span>` : ""}</div>` : ""}</div></li>`).join("")
+        `<button type="button" class="cp-id" data-id="${esc(i)}" title="Open finding ${esc(i)} in the sheet">${esc(i)}</button>`).join("")}${c.ids.length > 40 ? `<span class="cp-value-count">+${c.ids.length - 40}</span>` : ""}</div>` : ""}</div></li>`).join("")
       || '<li class="cp-check-row"><span class="cp-badge cp-badge-success">OK</span><div>No issues found.</div></li>';
 
     $("ovQuads").innerHTML = ["quick_win", "strategic", "filler", "deprioritise"].map((q) =>
-      `<li><button type="button" class="cp-value-row" data-q="${q}" title="Show ${QUAD_PLURAL[q].toLowerCase()} in the list">
+      `<li><button type="button" class="cp-value-row" data-q="${q}" title="Show ${QUAD_PLURAL[q].toLowerCase()} in the sheet">
         <span class="cp-value-name">${swatch(q)} ${QUAD_PLURAL[q]}</span><span class="cp-value-count">${s.quadrants[q]}</span></button></li>`).join("");
     drawMatrix();
 
     const ids = byId();
     const top = d.top_items.map((i) => ids.get(String(i))).filter(Boolean);
-    $("ovTopNote").textContent = top.length ? `· one slide each in the deck` : "";
-    $("ovTop").innerHTML = `<thead><tr><th class="num">#</th><th class="num">ID</th><th>Activity</th><th>Action</th><th class="num">Value</th><th class="num">Feas.</th><th class="num">Score</th></tr></thead>
+    $("ovTopNote").textContent = top.length ? "· one slide each in the deck" : "";
+    $("ovTop").innerHTML = `<thead><tr><th class="num">#</th><th class="num">ID</th><th>Activity</th><th>Action</th><th class="num">Score</th></tr></thead>
       <tbody>${top.map((f) => `<tr data-id="${esc(f.id)}"><td class="num">${f.rank}</td><td class="num">${esc(f.id)}</td><td>${esc(f.activity)}</td><td>${esc(f.name)}</td>
-        <td class="num">${fmt(f.expected_value)}</td><td class="num">${fmt(f.feasibility)}</td><td class="num"><b>${fmt(f.score)}</b></td></tr>`).join("")
-        || '<tr><td colspan="7" class="cp-empty">No scored findings.</td></tr>'}</tbody>`;
+        <td class="num"><b>${fmt(f.score)}</b></td></tr>`).join("") || '<tr><td colspan="5" class="cp-empty">No scored findings.</td></tr>'}</tbody>`;
     PARCharts.renderBars($("ovTypes"), s.by_solution_type);
     PARCharts.renderBars($("ovActs"), s.by_activity);
   }
 
   function drawMatrix() {
     if (!$("pchart")) return;
-    PARCharts.renderMatrix($("pchart"), state.data.findings, state.data.settings.value_threshold, state.data.settings.feasibility_threshold, select);
-  }
-
-  // ---- finding detail ------------------------------------------------------------
-  function renderFinding(id) {
-    const f = byId().get(String(id));
-    if (!f) { state.selected = "overview"; renderOverview(); return; }
-    const notes = [f.next_action, f.comments].filter((x) => x && x.toLowerCase() !== "closed").join(" — ");
-    const stat = (cls, v, l) => `<div class="cp-stat ${cls}"><span class="cp-stat-value">${v}</span><span class="cp-stat-label">${l}</span></div>`;
-    const kv = [["Activity", f.activity_raw], ["Solution type", f.solution_type], ["Status", f.status], ["Next action", f.next_action],
-      ["Retrofit", f.retrofit], ["Global adoption", f.global_adoption], ["Owner", f.owner], ["Theme", f.theme],
-      ["Requires MA support", f.requires_support]].filter(([, v]) => v);
-    $("detailPane").innerHTML = `<div class="cp-detail">
-      <button type="button" class="cp-link cp-back" id="back">← Findings overview</button>
-      <header class="cp-detail-head">
-        <div><h2 class="cp-detail-title">${esc(f.name)}</h2>
-          <div class="cp-detail-sub">${badgeFor(f)}<span>#${esc(f.id)}</span><span>${esc(f.activity).toUpperCase()}</span>${f.rank ? `<span class="cp-badge cp-badge-success">Top item ${f.rank}</span>` : ""}${f.edited && f.edited.length ? '<span class="cp-badge cp-badge-warning">Edited</span>' : ""}</div></div>
-        ${f.discarded ? "" : `<button type="button" class="cp-btn" id="editBtn"${state.editing ? " hidden" : ""}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          Edit scores</button>`}
-      </header>
-      <div id="scoreBlock"></div>
-      ${f.scores_estimated ? '<p class="cp-source-note">Scores estimated from Gain and Complexity (no Feasibility-Gain entry).</p>' : ""}
-      <div><h3 class="cp-section-title">Issue / pain point</h3><p class="cp-text">${esc(f.issue || "–")}</p></div>
-      <div><h3 class="cp-section-title">Solution</h3><p class="cp-text">${esc(f.solution || "–")}</p></div>
-      <div><h3 class="cp-section-title">Manhattan recommendation</h3>${f.recommendation ? `<p class="cp-text">${esc(f.recommendation)}</p>` :
-        `<div class="cp-placeholder">Not written yet. The report shows a highlighted placeholder here.${notes ? `<p>Analyst notes: ${esc(notes)}</p>` : ""}</div>`}</div>
-      ${f.client_comment ? `<div><h3 class="cp-section-title">Client feedback</h3><p class="cp-text">${esc(f.client_comment)}</p></div>` : ""}
-      ${kv.length ? `<div><h3 class="cp-section-title">Details</h3><dl class="cp-kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>` : ""}
-    </div>`;
-    $("back").addEventListener("click", () => { state.editing = false; select("overview"); });
-    $("editBtn")?.addEventListener("click", () => { state.editing = true; renderFinding(id); });
-    renderScoreBlock(f, stat);
-  }
-
-  // Stat tiles, or the edit form for the five scoring fields.
-  function renderScoreBlock(f, stat) {
-    const box = $("scoreBlock");
-    const ed = new Set(f.edited || []);
-    const mark = (k) => (ed.has(k) ? ' <span class="cp-edit-dot" title="Edited on this page">●</span>' : "");
-    if (!state.editing || f.discarded) {
-      box.innerHTML = `<div class="cp-stats">
-        ${stat("", fmt(f.expected_value) + mark("expected_value"), "Expected value")}
-        ${stat("", f.feasibility === null ? "–" + mark("feasibility") : `${fmt(f.feasibility)}<small class="cp-stat-unit">/20</small>${mark("feasibility")}`, "Feasibility")}
-        ${stat(f.quadrant === "quick_win" ? "cp-stat-on" : "", fmt(f.score) + mark("score"), "Score")}
-        ${stat(f.complexity ? "" : "cp-stat-na", esc(f.complexity || "–") + mark("complexity"), "Complexity")}
-        ${stat(f.gain ? "" : "cp-stat-na", esc(f.gain || "–") + mark("gain"), "Gain")}
-      </div>`;
-      return;
-    }
-    const lvl = (name, v) => `<select class="cp-select" id="e_${name}">${["", "Low", "Medium", "High"].map((o) =>
-      `<option value="${o}"${(v || "") === o ? " selected" : ""}>${o || "Not set"}</option>`).join("")}</select>`;
-    const scoreOverridden = !!(state.overrides[String(f.id)] && "score" in state.overrides[String(f.id)]);
-    box.innerHTML = `<form class="cp-edit" id="editForm" novalidate>
-      <div class="cp-edit-grid">
-        <label class="cp-field"><span>Expected value</span><input class="cp-input" id="e_expected_value" type="number" step="any" value="${f.expected_value ?? ""}"></label>
-        <label class="cp-field"><span>Feasibility (0–20)</span><input class="cp-input" id="e_feasibility" type="number" step="any" min="0" max="20" value="${f.feasibility ?? ""}"></label>
-        <label class="cp-field"><span>Score</span><input class="cp-input" id="e_score" type="number" step="any" value="${f.score ?? ""}"></label>
-        <label class="cp-field"><span>Complexity</span>${lvl("complexity", f.complexity)}</label>
-        <label class="cp-field"><span>Gain</span>${lvl("gain", f.gain)}</label>
-      </div>
-      <p class="cp-source-note" id="e_hint"></p>
-      <p class="cp-edit-error" id="e_error" role="alert" hidden></p>
-      <div class="cp-edit-actions">
-        <button type="submit" class="cp-btn">Save</button>
-        <button type="button" class="cp-btn cp-btn-ghost" id="e_cancel">Cancel</button>
-        ${ed.size ? '<button type="button" class="cp-link" id="e_reset">Reset to workbook values</button>' : ""}
-      </div>
-    </form>`;
-    const ev = $("e_expected_value"), fs = $("e_feasibility"), sc = $("e_score");
-    let scoreDirty = scoreOverridden;
-    const auto = () => (ev.value !== "" && fs.value !== "" ? Number(ev.value) * Number(fs.value) : null);
-    const hint = () => {
-      $("e_hint").textContent = scoreDirty
-        ? "Score set by hand. Clear it to use expected value × feasibility again."
-        : `Score = expected value × feasibility${auto() !== null ? ` = ${fmt(auto())}` : ""}. Type a score to set it by hand.`;
-    };
-    [ev, fs].forEach((i) => i.addEventListener("input", () => { if (!scoreDirty) sc.value = auto() ?? ""; hint(); }));
-    sc.addEventListener("input", () => { scoreDirty = sc.value !== ""; if (!scoreDirty) sc.value = ""; hint(); });
-    hint();
-    ev.focus();
-    $("e_cancel").addEventListener("click", () => { state.editing = false; renderFinding(f.id); });
-    $("e_reset")?.addEventListener("click", () => {
-      delete state.overrides[String(f.id)];
-      saveEdits(); state.editing = false; reanalyze();
-    });
-    $("editForm").addEventListener("keydown", (e) => { if (e.key === "Escape") $("e_cancel").click(); });
-    $("editForm").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const read = (el) => (el.value.trim() === "" ? null : Number(el.value));
-      const vals = { expected_value: read(ev), feasibility: read(fs), score: scoreDirty ? read(sc) : undefined };
-      const bad = Object.entries(vals).find(([, v]) => v !== null && v !== undefined && !Number.isFinite(v));
-      if (bad) { $("e_error").textContent = "Enter numbers only, or leave a field empty to clear it."; $("e_error").hidden = false; return; }
-      const prev = state.overrides[String(f.id)] || {};
-      const next = { ...prev };
-      const same = (a, b) => (a ?? null) === (b ?? null);
-      for (const k of ["expected_value", "feasibility"]) if (!same(vals[k], f[k])) next[k] = vals[k];
-      for (const k of ["complexity", "gain"]) { const v = $("e_" + k).value || null; if (!same(v, f[k])) next[k] = v; }
-      if (scoreDirty) { if (!same(vals.score, f.score) || "score" in prev) next.score = vals.score; }
-      else delete next.score; // back to value × feasibility
-      if (Object.keys(next).length) state.overrides[String(f.id)] = next; else delete state.overrides[String(f.id)];
-      saveEdits();
-      state.editing = false;
-      reanalyze();
-    });
+    PARCharts.renderMatrix($("pchart"), state.data.findings, state.data.settings.value_threshold, state.data.settings.feasibility_threshold, openFinding);
   }
 
   // ---- export ------------------------------------------------------------------------
   function renderExport() {
     const d = state.data, s = d.summary, n = d.top_items.length;
-    $("exportSub").textContent = `${d.file_name} · ${s.retained} findings · ${n} top items`;
+    const edits = Object.keys(state.overrides).length;
+    $("exportSub").textContent = `${d.file_name} · ${s.retained} findings · ${n} top items${edits ? ` · ${edits} edited rows included` : ""}`;
     if (!state.summaryEdited) $("summary").value = d.draft_executive_summary.join("\n");
     $("outputs").innerHTML = `
       <div class="cp-output"><div class="cp-output-head"><h3 class="cp-output-title">Word report</h3><span class="cp-badge cp-badge-neutral">.docx</span></div>
@@ -416,7 +615,7 @@
   }
 
   $("summary").addEventListener("input", () => { state.summaryEdited = true; });
-  $("resetSummary").addEventListener("click", () => { state.summaryEdited = false; reanalyze(); });
+  $("resetSummary").addEventListener("click", () => { state.summaryEdited = false; reanalyze(0); });
   ["client", "site", "visit"].forEach((id) => $(id).addEventListener("input", () => { if (!state.summaryEdited) reanalyze(); }));
   $("date").value = new Date().toLocaleDateString("en-GB");
 
@@ -471,6 +670,8 @@
 
   // ---- mode switch, upload, errors ------------------------------------------------
   function setMode(mode) {
+    if (state.editing && mode !== "grid") commitEdit(0, 0);
+    const changed = state.mode !== mode;
     state.mode = mode;
     document.querySelectorAll(".cp-mode-btn").forEach((b) => {
       const on = b.dataset.mode === mode;
@@ -478,14 +679,12 @@
       b.setAttribute("aria-selected", on);
     });
     const has = !!state.data;
-    $("reviewView").hidden = !(has && mode === "review");
+    $("gridView").hidden = !(has && mode === "grid");
+    $("overviewView").hidden = !(has && mode === "overview");
     $("exportView").hidden = !(has && mode === "export");
-    if (has && mode === "review" && state.selected === "overview" && !$("ovStats")) renderOverview();
+    if (has && mode === "overview" && (changed || !$("ovStats"))) renderOverview();
   }
-  document.querySelectorAll(".cp-mode-btn").forEach((b) => b.addEventListener("click", () => {
-    setMode(b.dataset.mode);
-    if (b.dataset.mode === "review" && state.selected === "overview") drawMatrix();
-  }));
+  document.querySelectorAll(".cp-mode-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
 
   function showError(msg) { $("error").textContent = msg; $("error").hidden = !msg; }
   $("file").addEventListener("change", (e) => { if (e.target.files[0]) load(e.target.files[0]); e.target.value = ""; });
