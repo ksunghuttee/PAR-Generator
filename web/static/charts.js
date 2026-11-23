@@ -40,7 +40,7 @@
   }
 
   /** Priority matrix: feasibility (x) vs expected value (y), one mark per scored finding. */
-  function renderMatrix(host, findings, vt, ft) {
+  function renderMatrix(host, findings, vt, ft, onSelect) {
     const pts = findings.filter((f) => !f.discarded && f.quadrant && f.feasibility !== null && f.expected_value !== null);
     host.innerHTML = "";
     host.classList.add("pchart");
@@ -59,7 +59,7 @@
     }
 
     // Draw at the container's own width so text keeps its size on phones; redraw on resize.
-    const W = Math.round(Math.max(300, Math.min(760, host.clientWidth || 640)));
+    const W = Math.round(Math.max(300, Math.min(820, host.clientWidth || 640)));
     const H = Math.round(W < 520 ? W * 0.9 : Math.min(440, W * 0.62)), m = { l: 48, r: 16, t: 14, b: 46 };
     if (!host._parObserver && "ResizeObserver" in window) {
       let lastW = W;
@@ -69,7 +69,7 @@
       });
       host._parObserver.observe(host);
     }
-    host._parArgs = [host, findings, vt, ft];
+    host._parArgs = [host, findings, vt, ft, onSelect];
     const xs = pts.map((f) => f.feasibility), ys = pts.map((f) => f.expected_value);
     const x0 = Math.min(0, ...xs), x1 = Math.max(20, ft, ...xs) + 1;
     const y0 = Math.min(0, ...ys), y1 = Math.max(20, vt, ...ys) + 1;
@@ -126,7 +126,8 @@
         <div class="tip__row"><span>Expected value</span><b>${fmt(f.expected_value)}</b></div>
         <div class="tip__row"><span>Feasibility</span><b>${fmt(f.feasibility)}</b></div>
         <div class="tip__row"><span>Score</span><b>${fmt(f.score)}</b></div>
-        ${f.rank ? `<div class="tip__rank">Top action #${f.rank}</div>` : ""}${f.scores_estimated ? '<div class="tip__note">Estimated from Gain / Complexity</div>' : ""}`;
+        ${f.rank ? `<div class="tip__rank">Top action #${f.rank}</div>` : ""}${f.scores_estimated ? '<div class="tip__note">Estimated from Gain / Complexity</div>' : ""}
+        ${onSelect ? '<div class="tip__hint">Click to open the finding</div>' : ""}`;
       tip.hidden = false;
       const box = wrap.getBoundingClientRect(), r = node.getBoundingClientRect();
       let left = r.left - box.left + r.width / 2 + 12, top = r.top - box.top - 8;
@@ -157,18 +158,19 @@
       gnode.addEventListener("pointerenter", () => show(f, gnode));
       gnode.addEventListener("pointerleave", () => hide(gnode));
       gnode.addEventListener("pointerdown", (e) => { e.stopPropagation(); show(f, gnode); });
+      if (onSelect) gnode.addEventListener("click", () => onSelect(f.id));
     });
     svg.addEventListener("pointerdown", () => { tip.hidden = true; });
   }
 
-  /** Single-series horizontal bars (largest first), value at the tip. */
+  /** Single-series horizontal bars (largest first), count at the end. */
   function renderBars(host, pairs) {
     const rows = [...pairs].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])));
     const max = Math.max(1, ...rows.map((r) => r[1]));
     host.innerHTML = rows.map(([label, n]) =>
-      `<div class="bar" title="${esc(label)}: ${n}"><span class="bar__label">${esc(label)}</span>
-        <span class="bar__track"><span class="bar__fill" style="width:${(100 * n) / max}%"></span></span>
-        <span class="bar__n">${n}</span></div>`).join("");
+      `<div class="cp-hbar" title="${esc(label)}: ${n}"><span class="cp-hbar-label">${esc(label)}</span>
+        <span class="cp-hbar-track"><span class="cp-hbar-fill" style="width:${(100 * n) / max}%"></span></span>
+        <span class="cp-hbar-n">${n}</span></div>`).join("");
   }
 
   window.PARCharts = { renderMatrix, renderBars, QUAD };

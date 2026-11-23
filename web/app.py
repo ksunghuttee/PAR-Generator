@@ -33,6 +33,12 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/embed", include_in_schema=False)
+def embed():
+    """Same page without its own header/hero, for use as a tab inside the host app."""
+    return FileResponse(STATIC / "index.html")
+
+
 @app.get("/healthz", include_in_schema=False)
 def health():
     return {"ok": True}

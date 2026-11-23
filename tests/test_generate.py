@@ -127,6 +127,9 @@ def test_deck():
 def test_api_roundtrip():
     c = TestClient(app)
     assert c.get("/").status_code == 200
+    assert "cp-page" in c.get("/embed").text  # same page, embedded mode chosen client-side
+    for asset in ("app.css", "app.js", "charts.js", "engine.js"):
+        assert c.get(f"/static/{asset}").status_code == 200
     files = {"file": ("findings.xlsx", workbook(), "application/octet-stream")}
     r = c.post("/api/analyze", files=files, data={"client": "Acme", "site": "Springfield"})
     assert r.status_code == 200 and r.json()["summary"]["retained"] == 4
