@@ -18,7 +18,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from par_generator import content, findings, slides, word, workbook
+from par_generator import content, findings, metrics, slides, word, workbook
 
 MAX_UPLOAD = 25 * 1024 * 1024
 STATIC = Path(__file__).parent / "static"
@@ -74,6 +74,16 @@ def _load(data: bytes, value_threshold: float, feasibility_threshold: float, top
         return findings.load(data, settings, _overrides(overrides))
     except findings.WorkbookError as e:
         raise HTTPException(422, str(e)) from e
+
+
+@app.get("/api/metrics")
+def get_metrics(site: str = "Site", period: str | None = None):
+    """Operational KPIs and the intraday analyses behind them (dummy figures until the
+    database provider is connected — the payload says which in `source`)."""
+    try:
+        return JSONResponse(metrics.get_metrics(site.strip() or "Site", period).to_json())
+    except NotImplementedError as e:
+        raise HTTPException(503, f"Metrics are not available yet: {e}") from e
 
 
 @app.post("/api/analyze")

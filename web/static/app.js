@@ -111,6 +111,7 @@
       state.overrides = loadEdits();
       state.editing = null; state.active = null; state.panel = null; state.undo = []; state.redo = [];
       state.data = await analyze();
+      state.mode = "overview"; // a newly uploaded workbook opens on its overview
       state.summaryEdited = false;
       state.filters = { q: "", activity: "", priority: "", chip: "" };
       onData(true);
@@ -962,6 +963,10 @@
     });
     const has = !!state.data;
     $("gridView").hidden = !(has && mode === "grid");
+    // Metrics come from the warehouse database, not the workbook: available before any upload.
+    $("metricsView").hidden = mode !== "metrics";
+    $("emptyState").hidden = has || mode === "metrics";
+    if (mode === "metrics" && window.PARMetrics) window.PARMetrics.show();
     $("downloadWb").hidden = !has;
     $("overviewView").hidden = !(has && mode === "overview");
     $("exportView").hidden = !(has && mode === "export");

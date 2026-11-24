@@ -69,6 +69,7 @@
           <div class="cp-mode-switch" role="tablist" aria-label="View">
             <button type="button" role="tab" class="cp-mode-btn active" data-mode="overview" aria-selected="true" disabled>Overview</button>
             <button type="button" role="tab" class="cp-mode-btn" data-mode="grid" aria-selected="false" disabled>Findings</button>
+            <button type="button" role="tab" class="cp-mode-btn" data-mode="metrics" aria-selected="false">Metrics</button>
             <button type="button" role="tab" class="cp-mode-btn" data-mode="export" aria-selected="false" disabled>Report &amp; export</button>
           </div>
           <div class="cp-page-head-right">
@@ -140,6 +141,29 @@
           </div>
         </section>
 
+        <!-- Metrics: operational KPIs from the warehouse database (go-live card style) -->
+        <section class="gl-page" id="metricsView" hidden aria-label="Site metrics">
+          <div class="gl-head">
+            <div class="gl-head-left">
+              <h2 class="cp-detail-title">Site metrics</h2>
+              <p class="gl-desc">KPIs calculated from the warehouse database over the period you pick, against the PAR targets. Each card says how the figure is calculated (ⓘ); the analyses below explain what drives it.</p>
+              <div class="gl-periods" id="mPeriods" role="radiogroup" aria-label="Period">
+                <button type="button" class="cp-chip" data-period="24h" role="radio">past 24h</button>
+                <button type="button" class="cp-chip" data-period="7d" role="radio">past 7 days</button>
+                <button type="button" class="cp-chip" data-period="30d" role="radio">past 30 days</button>
+              </div>
+            </div>
+            <div class="gl-head-right">
+              <div class="gl-site"><b id="mSite">Site</b><span class="gl-badge" id="mSource">Dummy data</span></div>
+              <button type="button" class="cp-btn gl-primary" id="mRefresh">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                Calculate metrics</button>
+            </div>
+          </div>
+          <p class="gl-meta" id="mMeta"></p>
+          <div id="mBody"></div>
+        </section>
+
         <!-- Overview -->
         <section class="cp-overview" id="overviewView" hidden aria-label="Overview"></section>
 
@@ -186,5 +210,6 @@
   </div>
   <script src="static/charts.js"></script>
   <script src="static/app.js"></script>
+  <script src="static/metrics.js"></script>
 </body>
 </html>

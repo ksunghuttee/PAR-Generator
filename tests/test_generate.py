@@ -245,3 +245,25 @@ def test_api_workbook_download():
     assert r.status_code == 200 and "FR99 findings - updated.xlsx" in r.headers["content-disposition"]
     f = {x.id: x for x in findings.load(r.content).findings}
     assert f[1].recommendation == "Do it"
+
+
+def test_metrics_api_dummy():
+    from par_generator import metrics
+    c = TestClient(app)
+    r = c.get("/api/metrics", params={"site": "Springfield"})
+    assert r.status_code == 200
+    m = r.json()
+    assert m["source"] == "dummy" and len(m["kpis"]) == len(metrics.KPIS) == 11
+    assert {k["id"] for k in m["kpis"]} >= {"order_cycle_time", "dock_to_stock", "space_utilization"}
+    assert m == c.get("/api/metrics", params={"site": "Springfield"}).json() | {"period": m["period"]}  # stable per site
+    s = m["series"]
+    assert len(s["hours"]) == 24 and all(len(v) == 24 for v in s["order_backlog"].values())
+    assert len(s["putaway_backlog"]["backlog"]) == 24 and s["space_by_zone"]
+    for k in m["kpis"]:
+        assert k["status"] in ("good", "watch", "poor", "none")
+
+
+def test_metrics_database_not_connected(monkeypatch):
+    monkeypatch.setenv("PAR_METRICS_PROVIDER", "database")
+    r = TestClient(app).get("/api/metrics")
+    assert r.status_code == 503 and "not available" in r.json()["detail"]
