@@ -365,7 +365,17 @@
       input.focus();
       const end = input.value.length;
       input.setSelectionRange(end, end);
-      wrap.addEventListener("scroll", () => { if (state.editing && state.editing.input === input) commitEdit(0, 0); }, { once: true });
+      // Save if the user scrolls the sheet away from the box. A scroll event that was already
+      // on its way (e.g. the click bringing the cell into view) must not count: compare positions.
+      const start = [wrap.scrollLeft, wrap.scrollTop];
+      const onScroll = () => {
+        if (!(state.editing && state.editing.input === input)) { wrap.removeEventListener("scroll", onScroll); return; }
+        if (Math.abs(wrap.scrollLeft - start[0]) > 4 || Math.abs(wrap.scrollTop - start[1]) > 4) {
+          wrap.removeEventListener("scroll", onScroll);
+          commitEdit(0, 0);
+        }
+      };
+      wrap.addEventListener("scroll", onScroll);
       return;
     }
     if (c.edit === "level") {
