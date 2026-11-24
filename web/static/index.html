@@ -147,6 +147,10 @@
             <div class="gl-head-left">
               <h2 class="cp-detail-title">Site metrics</h2>
               <p class="gl-desc">KPIs calculated from the warehouse database over the period you pick, against the PAR targets. Each card says how the figure is calculated (ⓘ); the analyses below explain what drives it.</p>
+              <div class="cp-mode-switch gl-view" id="mView" role="tablist" aria-label="Metrics view">
+                <button type="button" role="tab" class="cp-mode-btn active" data-view="kpis" aria-selected="true">Site KPIs</button>
+                <button type="button" role="tab" class="cp-mode-btn" data-view="compare" aria-selected="false">Compare with peers</button>
+              </div>
               <div class="gl-periods" id="mPeriods" role="radiogroup" aria-label="Period">
                 <button type="button" class="cp-chip" data-period="24h" role="radio">past 24h</button>
                 <button type="button" class="cp-chip" data-period="7d" role="radio">past 7 days</button>

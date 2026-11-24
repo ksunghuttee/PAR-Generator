@@ -70,6 +70,40 @@ KPIS: tuple[KPI, ...] = (
 KPI_BY_ID = {k.id: k for k in KPIS}
 
 HOURS = list(range(24))
+
+# Plausible range per KPI (low, high, decimals) for the dummy figures.
+RANGES = {
+    "inventory_accuracy": (97.0, 99.9, 1), "order_cycle_time": (14, 40, 1), "dock_to_stock": (2, 9, 1),
+    "space_utilization": (68, 94, 1), "on_time_shipping": (91, 99.5, 1), "labor_productivity": (85, 160, 0),
+    "picking_exceptions": (0.8, 5.5, 1), "appointment_accuracy": (12, 75, 0), "receiving_completeness": (90, 99.5, 1),
+    "shipping_completeness": (93, 99.8, 1), "inventory_quality": (0.4, 3.5, 1),
+}
+
+# Industry verticals for the peer comparison.
+VERTICALS = ("Retail", "Fashion & apparel", "Food & beverage", "Health & beauty", "3PL", "Industrial & B2B", "All customers")
+CORPUS_CUSTOMERS, CORPUS_SITES = 214, 427
+
+
+def peer_bucket(k: KPI, value, band: dict | None) -> str:
+    """How a value sits in the peer distribution.
+
+    in_range: inside p25–p75 · watch: outside p25–p75 but inside p10–p90 ·
+    outlier: beyond p10 or p90 · no_benchmark: fewer than 5 peers or no value.
+    """
+    if value is None or not band or band.get("n", 0) < 5:
+        return "no_benchmark"
+    if band["p25"] <= value <= band["p75"]:
+        return "in_range"
+    if band["p10"] <= value <= band["p90"]:
+        return "watch"
+    return "outlier"
+
+
+def peer_side(k: KPI, value, median) -> str:
+    """'better' / 'worse' / 'same' than the peer median, for the KPI's direction."""
+    if value is None or median is None or value == median:
+        return "same"
+    return "better" if (value > median) == (k.better == "higher") else "worse"
 PERIODS = {"24h": "past 24h", "7d": "past 7 days", "30d": "past 30 days"}
 
 # Supporting rows shown under each KPI (label, low, high, decimals, unit).
@@ -95,6 +129,7 @@ class MetricsResult:
     source: str  # "dummy" | "database"
     kpis: list[dict]
     series: dict = field(default_factory=dict)
+    peers: dict = field(default_factory=dict)
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -121,12 +156,7 @@ class DummyProvider:
 
     def kpis(self, site: str, period: str) -> list[dict]:
         r = self._rng(site, f"kpis|{period}")
-        ranges = {
-            "inventory_accuracy": (97.0, 99.9, 1), "order_cycle_time": (14, 40, 1), "dock_to_stock": (2, 9, 1),
-            "space_utilization": (68, 94, 1), "on_time_shipping": (91, 99.5, 1), "labor_productivity": (85, 160, 0),
-            "picking_exceptions": (0.8, 5.5, 1), "appointment_accuracy": (12, 75, 0), "receiving_completeness": (90, 99.5, 1),
-            "shipping_completeness": (93, 99.8, 1), "inventory_quality": (0.4, 3.5, 1),
-        }
+        ranges = RANGES
         out = []
         for k in KPIS:
             lo, hi, nd = ranges[k.id]
@@ -204,6 +234,34 @@ class DummyProvider:
         }
 
 
+    def peers(self, site: str, period: str, vertical: str, kpis: list[dict]) -> dict:
+        """Peer distribution per KPI for customers in the same vertical (dummy)."""
+        r = self._rng(site, f"peers|{period}|{vertical}")
+        customers = CORPUS_CUSTOMERS if vertical == "All customers" else r.randint(18, 64)
+        sites = CORPUS_SITES if vertical == "All customers" else round(customers * r.uniform(2.2, 4.4))
+        values = {k["id"]: k["value"] for k in kpis}
+        rows = []
+        for k in KPIS:
+            lo, hi, nd = RANGES[k.id]
+            n = r.randint(0, 3) if k.id == "appointment_accuracy" and vertical != "All customers" else r.randint(12, sites)
+            spread = (hi - lo) * r.uniform(0.12, 0.22)
+            v0 = values.get(k.id)
+            # Peers sit around the site's value with some noise, so most KPIs land in or near the band.
+            mid = min(hi, max(lo, (v0 if v0 is not None else (lo + hi) / 2) + r.gauss(0, 1.1) * spread))
+            q = [mid - 2.1 * spread, mid - spread, mid, mid + spread, mid + 2.1 * spread]
+            if k.unit == "%":
+                q = [min(100.0, x) for x in q]
+            band = {"n": n, **{key: round(v, nd) for key, v in zip(("p10", "p25", "median", "p75", "p90"), q)}}
+            v = values.get(k.id)
+            rows.append({
+                "id": k.id, "name": k.name, "area": k.area, "unit": k.unit, "better": k.better, "value": v, **band,
+                "delta_pct": round(100 * (v - band["median"]) / band["median"], 1) if v is not None and band["median"] else None,
+                "bucket": peer_bucket(k, v, band), "side": peer_side(k, v, band["median"]),
+            })
+        return {"vertical": vertical, "verticals": list(VERTICALS), "customers": customers, "sites": sites,
+                "corpus_customers": CORPUS_CUSTOMERS, "corpus_sites": CORPUS_SITES, "rows": rows}
+
+
 class DatabaseProvider:
     """Real figures from the warehouse database (to implement).
 
@@ -223,6 +281,10 @@ class DatabaseProvider:
     def series(self, site: str, period: str) -> dict:
         raise NotImplementedError("Connect the warehouse database: implement DatabaseProvider.series().")
 
+    def peers(self, site: str, period: str, vertical: str, kpis: list[dict]) -> dict:
+        raise NotImplementedError("Connect the warehouse database: implement DatabaseProvider.peers() "
+                                  "(p10/p25/median/p75/p90 per KPI over the customers of the vertical).")
+
 
 def provider():
     if os.environ.get("PAR_METRICS_PROVIDER", "dummy") == "database":
@@ -230,7 +292,14 @@ def provider():
     return DummyProvider()
 
 
-def get_metrics(site: str = "Site", period: str | None = None) -> MetricsResult:
+CLIENT_VERTICAL = "Retail"  # the client's own industry (from the client record once connected)
+
+
+def get_metrics(site: str = "Site", period: str | None = None, vertical: str | None = None) -> MetricsResult:
     p = provider()
     period = period if period in PERIODS else "7d"
-    return MetricsResult(site=site, period=period, source=p.source, kpis=p.kpis(site, period), series=p.series(site, period))
+    vertical = vertical if vertical in VERTICALS else CLIENT_VERTICAL
+    kpis = p.kpis(site, period)
+    peers = p.peers(site, period, vertical, kpis)
+    peers["client_vertical"] = CLIENT_VERTICAL
+    return MetricsResult(site=site, period=period, source=p.source, kpis=kpis, series=p.series(site, period), peers=peers)

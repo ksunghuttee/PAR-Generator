@@ -15,7 +15,14 @@
     order_backlog: "Order-line backlog through the day", waves: "Waves: volume and deselection",
     task_volume: "Task volume through the day", putaway_backlog: "iLPNs waiting for putaway", space_by_zone: "Space utilisation per allocation zone",
   };
-  const state = { period: "7d", data: null, loading: false };
+  const state = { period: "7d", view: "kpis", vertical: null, data: null, loading: false };
+  const BUCKETS = [
+    ["outlier", "Outliers", "Beyond the peer p10–p90 range. Worth explaining in the report."],
+    ["watch", "Watch", "Outside the peer p25–p75 band, but within p10–p90."],
+    ["in_range", "In range", "Site value sits inside the peer p25–p75 band. Nothing to escalate."],
+    ["no_benchmark", "No benchmark", "Fewer than 5 peers report this KPI, so there is nothing reliable to compare with."],
+  ];
+  const BUCKET_ICON = { outlier: "!", watch: "▲", in_range: "✓", no_benchmark: "○" };
 
   const num = (v, u) => {
     if (v === null || v === undefined) return "—";
@@ -38,9 +45,11 @@
     const t0 = performance.now();
     try {
       if (LOCAL && LOCAL.metrics) {
-        state.data = LOCAL.metrics[state.period];
+        const v = state.vertical || LOCAL.metrics[state.period].peers.client_vertical;
+        state.data = { ...LOCAL.metrics[state.period], peers: LOCAL.peers[state.period][v] };
       } else {
-        const res = await fetch(`api/metrics?site=${encodeURIComponent(site())}&period=${state.period}`);
+        const vq = state.vertical ? `&vertical=${encodeURIComponent(state.vertical)}` : "";
+        const res = await fetch(`api/metrics?site=${encodeURIComponent(site())}&period=${state.period}${vq}`);
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.detail || `Metrics could not be loaded (${res.status}).`);
         state.data = body;
@@ -53,6 +62,15 @@
       state.loading = false;
       $("mRefresh").disabled = false;
     }
+  }
+
+  function peerLine(k) {
+    const p = state.data.peers && state.data.peers.rows.find((r) => r.id === k.id);
+    if (!p) return "";
+    const label = BUCKETS.find((b) => b[0] === p.bucket)[1];
+    return `<button type="button" class="gl-peer" data-compare="${k.id}" title="Compare with ${esc(state.data.peers.vertical)} peers">
+      <span>${esc(state.data.peers.vertical)} peers${p.bucket === "no_benchmark" ? "" : ` · median ${esc(plainUnit(p.median, k.unit))}`}</span>
+      <span class="cmp-chip cmp-${p.bucket}">${BUCKET_ICON[p.bucket]} ${label}</span></button>`;
   }
 
   function card(k) {
@@ -77,6 +95,7 @@
       <div class="gl-trend ${improving === null ? "" : improving ? "is-better" : "is-worse"}" title="Previous period: ${esc(plainUnit(k.previous, k.unit))}">
         ${arrow}${delta ? ` ${esc(signed(delta, k.unit))} vs previous period` : " no change vs previous period"}</div>
       ${tgt}
+      ${peerLine(k)}
       <dl class="gl-rows">${(k.details || []).map(([l, v]) => `<dt>${esc(l)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
       <div class="gl-spark">${PARCharts.sparkline(k.trend, k.better)}<span>last 12 periods</span></div>
       ${k.note ? `<p class="gl-note"><span aria-hidden="true">⚠</span> ${esc(k.note)}</p>` : ""}
@@ -95,7 +114,14 @@
       c.classList.toggle("active", on); c.setAttribute("aria-checked", on);
     });
     const now = new Date().toLocaleTimeString("en-GB");
-    $("mMeta").textContent = `${d.site} · ${PERIOD_LABEL[state.period]} · ${dummy ? "dummy figures — the database is not connected yet" : "from the warehouse database"} · fetched ${now} in ${seconds}s`;
+    if (seconds !== null) { // null = re-render only (view switch): keep the fetch line as it was
+      $("mMeta").textContent = `${d.site} · ${PERIOD_LABEL[state.period]} · ${dummy ? "dummy figures — the database is not connected yet" : "from the warehouse database"} · fetched ${now} in ${seconds}s`;
+    }
+    document.querySelectorAll("#mView .cp-mode-btn").forEach((b) => {
+      const on = b.dataset.view === state.view;
+      b.classList.toggle("active", on); b.setAttribute("aria-selected", on);
+    });
+    if (state.view === "compare") { renderCompare(); return; }
     const s = d.series;
     $("mBody").innerHTML = GROUPS.map(([title, ids]) => `<section class="gl-section"><h3 class="gl-section-title">${esc(title)}</h3>
         <div class="gl-grid">${ids.filter((i) => byId[i]).map((i) => card(byId[i])).join("")}</div></section>`).join("")
@@ -142,7 +168,54 @@
       </div>`).join("") + `<p class="gl-sub gl-zone-key">Orange = above 95 % (little room left) · faded = below 70 % (under-used).</p>`;
   }
 
+  // ---- compare with peers ----------------------------------------------------------
+  function renderCompare() {
+    const d = state.data, P = d.peers;
+    const counts = Object.fromEntries(BUCKETS.map(([b]) => [b, P.rows.filter((r) => r.bucket === b).length]));
+    const scope = P.vertical === "All customers" ? "all customers" : P.vertical;
+    const fmtRange = (r) => `${num(r.p25)}–${num(r.p75)}`;
+    const delta = (r) => {
+      if (r.delta_pct === null || r.bucket === "no_benchmark") return "—";
+      const dir = r.better === "higher" ? "higher is better" : "lower is better";
+      const word = r.side === "same" ? "Same as" : r.side === "better" ? "Better than" : "Worse than";
+      return `<span class="cmp-delta cmp-${r.side}" title="${word} the peer median (${dir})">${r.delta_pct > 0 ? "+" : r.delta_pct < 0 ? "−" : ""}${Math.abs(r.delta_pct)}%</span>`;
+    };
+    const unitTag = (u) => (u === "%" ? "" : ` <small>${esc(u)}</small>`);
+    $("mBody").innerHTML = `<div class="cmp">
+      <div class="cmp-head">
+        <h2 class="cmp-title">${esc(d.site)} · Compare <span class="gl-pill">${esc(PERIOD_LABEL[state.period])}</span></h2>
+        <p class="cmp-sub">Peers: ${esc(scope)} — ${P.customers} customers, ${P.sites} sites${P.vertical === "All customers" ? " (the whole corpus)" : ` (of ${P.corpus_sites} in the corpus)`}${d.source === "dummy" ? " · dummy figures" : ""}</p>
+        <label class="cmp-against"><span>Compare against</span>
+          <select class="cp-select" id="cmpVertical">${P.verticals.map((v) => `<option value="${esc(v)}"${v === P.vertical ? " selected" : ""}>${esc(v)}${v === P.client_vertical ? " — this client's industry" : ""}</option>`).join("")}</select></label>
+      </div>
+      <div class="cmp-summary">
+        ${BUCKETS.map(([b, label]) => `<button type="button" class="cmp-chip cmp-${b}" data-jump="${b}"${counts[b] ? "" : " disabled"}><span aria-hidden="true">${BUCKET_ICON[b]}</span> <b>${counts[b]}</b> ${label}</button>`).join("")}
+        <span class="cmp-total">${P.rows.length} compared</span>
+      </div>
+      ${BUCKETS.filter(([b]) => counts[b]).map(([b, label, explain]) => `
+        <section class="cmp-group cmp-g-${b}" id="cmp-${b}">
+          <header class="cmp-group-head"><h3>${label} <span class="cmp-count">${counts[b]}</span></h3><span>${explain}</span></header>
+          <div class="cp-table-wrap"><table class="cmp-table">
+            <thead><tr><th>KPI</th><th>Site value</th><th>Peer median</th><th>Peer range <span class="cmp-th-note">p25–p75</span></th><th class="num">Peers</th><th>Δ vs median</th></tr></thead>
+            <tbody>${P.rows.filter((r) => r.bucket === b).map((r) => `<tr id="cmp-row-${r.id}">
+              <td><b>${esc(r.name)}</b><div class="cmp-meta">${esc(r.area)} · ${r.better === "higher" ? "higher is better" : "lower is better"}</div></td>
+              <td><b>${r.value === null ? "—" : num(r.value) + (r.unit === "%" ? "%" : "")}</b>${r.value === null ? "" : unitTag(r.unit)}</td>
+              <td>${b === "no_benchmark" ? "—" : num(r.median) + (r.unit === "%" ? "%" : "") + unitTag(r.unit)}</td>
+              <td>${b === "no_benchmark" ? "—" : fmtRange(r) + (r.unit === "%" ? "%" : "")}</td>
+              <td class="num">${r.n}</td>
+              <td>${delta(r)}</td></tr>`).join("")}</tbody></table></div>
+        </section>`).join("")}
+    </div>`;
+    $("cmpVertical").addEventListener("change", (e) => { state.vertical = e.target.value; load(); });
+  }
+
   // Events
+  $("mView").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (!b || b.dataset.view === state.view || !state.data) return;
+    state.view = b.dataset.view;
+    render(null);
+  });
   $("mPeriods").addEventListener("click", (e) => {
     const c = e.target.closest("[data-period]");
     if (!c || state.loading) return;
@@ -151,6 +224,18 @@
   });
   $("mRefresh").addEventListener("click", load);
   $("mBody").addEventListener("click", (e) => {
+    const j = e.target.closest("[data-jump]");
+    if (j) { $(`cmp-${j.dataset.jump}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    const pc = e.target.closest("[data-compare]");
+    if (pc) {
+      state.view = "compare";
+      render(null);
+      const row = $(`cmp-row-${pc.dataset.compare}`);
+      row?.scrollIntoView({ block: "center" });
+      row?.classList.add("is-flash");
+      setTimeout(() => row?.classList.remove("is-flash"), 1400);
+      return;
+    }
     const b = e.target.closest("[data-analysis]");
     if (!b) return;
     const el = $(`an-${b.dataset.analysis}`);

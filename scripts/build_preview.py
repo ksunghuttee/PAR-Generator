@@ -75,13 +75,13 @@ def build(out: Path) -> None:
     rows = [dict(zip(KEYS, r)) for r in SAMPLE]
     # Metrics: the dummy provider's figures for the example site, one snapshot per period.
     from par_generator import metrics
-    dummy = metrics.DummyProvider()
-    snapshot = {p: metrics.MetricsResult(site="Lyon DC", period=p, source="dummy", kpis=dummy.kpis("Lyon DC", p),
-                                         series=dummy.series("Lyon DC", p)).to_json() for p in metrics.PERIODS}
+    snapshot = {p: metrics.get_metrics("Lyon DC", p).to_json() for p in metrics.PERIODS}
+    peers = {p: {v: metrics.get_metrics("Lyon DC", p, v).peers for v in metrics.VERTICALS} for p in metrics.PERIODS}
     local = (
         "window.PAR_LOCAL = { client: 'Northwind Retail', site: 'Lyon DC', author: 'Sam Taylor', visit: '3 – 14 March 2026' };\n"
         f"window.PAR_LOCAL.sample = PAREngine.fromRows({json.dumps(rows)}, 'Example workbook (made-up data).xlsx');\n"
         f"window.PAR_LOCAL.metrics = {json.dumps(snapshot)};\n"
+        f"window.PAR_LOCAL.peers = {json.dumps(peers)};\n"
     )
     css = (STATIC / "app.css").read_text() + """
 .app-navbar-preview { align-self: center; margin-left: 8px; padding: 2px 8px; font-size: 11px; font-weight: 600; color: var(--m-brand-green); border: 1px solid #ffffff38; border-radius: 999px; white-space: nowrap; }

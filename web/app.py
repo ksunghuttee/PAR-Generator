@@ -77,11 +77,11 @@ def _load(data: bytes, value_threshold: float, feasibility_threshold: float, top
 
 
 @app.get("/api/metrics")
-def get_metrics(site: str = "Site", period: str | None = None):
+def get_metrics(site: str = "Site", period: str | None = None, vertical: str | None = None):
     """Operational KPIs and the intraday analyses behind them (dummy figures until the
     database provider is connected — the payload says which in `source`)."""
     try:
-        return JSONResponse(metrics.get_metrics(site.strip() or "Site", period).to_json())
+        return JSONResponse(metrics.get_metrics(site.strip() or "Site", period, vertical).to_json())
     except NotImplementedError as e:
         raise HTTPException(503, f"Metrics are not available yet: {e}") from e
 

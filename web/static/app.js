@@ -140,7 +140,7 @@
 
   function onData(fresh) {
     $("emptyState").hidden = true;
-    document.querySelectorAll(".cp-mode-btn").forEach((b) => { b.disabled = false; });
+    document.querySelectorAll(".cp-mode-btn[data-mode]").forEach((b) => { b.disabled = false; });
     $("uploadLabel").textContent = "Replace workbook";
     if (fresh) {
       $("search").value = "";
@@ -956,7 +956,7 @@
     if (state.editing && mode !== "grid") commitEdit(0, 0);
     const changed = state.mode !== mode;
     state.mode = mode;
-    document.querySelectorAll(".cp-mode-btn").forEach((b) => {
+    document.querySelectorAll(".cp-mode-btn[data-mode]").forEach((b) => {
       const on = b.dataset.mode === mode;
       b.classList.toggle("active", on);
       b.setAttribute("aria-selected", on);
@@ -972,7 +972,7 @@
     $("exportView").hidden = !(has && mode === "export");
     if (has && mode === "overview" && (changed || !$("ovStats"))) renderOverview();
   }
-  document.querySelectorAll(".cp-mode-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  document.querySelectorAll(".cp-mode-btn[data-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
 
   function showError(msg) { $("error").textContent = msg; $("error").hidden = !msg; }
   $("file").addEventListener("change", (e) => { if (e.target.files[0]) load(e.target.files[0]); e.target.value = ""; });

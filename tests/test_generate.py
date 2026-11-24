@@ -267,3 +267,20 @@ def test_metrics_database_not_connected(monkeypatch):
     monkeypatch.setenv("PAR_METRICS_PROVIDER", "database")
     r = TestClient(app).get("/api/metrics")
     assert r.status_code == 503 and "not available" in r.json()["detail"]
+
+
+def test_metrics_peer_comparison():
+    c = TestClient(app)
+    m = c.get("/api/metrics", params={"site": "Lyon DC", "period": "7d"}).json()
+    P = m["peers"]
+    assert P["vertical"] == P["client_vertical"] == "Retail" and "All customers" in P["verticals"]
+    assert len(P["rows"]) == 11
+    for r in P["rows"]:
+        assert r["bucket"] in ("outlier", "watch", "in_range", "no_benchmark") and r["side"] in ("better", "worse", "same")
+        if r["bucket"] != "no_benchmark":
+            assert r["p10"] <= r["p25"] <= r["median"] <= r["p75"] <= r["p90"] and r["n"] >= 5
+            inside = r["p25"] <= r["value"] <= r["p75"]
+            assert inside == (r["bucket"] == "in_range")
+    allc = c.get("/api/metrics", params={"site": "Lyon DC", "vertical": "All customers"}).json()["peers"]
+    assert allc["sites"] == allc["corpus_sites"]
+    assert c.get("/api/metrics", params={"vertical": "Nonsense"}).json()["peers"]["vertical"] == "Retail"
