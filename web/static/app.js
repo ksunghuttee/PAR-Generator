@@ -675,6 +675,9 @@
     { key: "solution", label: "Solution", where: "Report · Solution(s)", rows: 3 },
     { key: "recommendation", label: "Manhattan recommendation", where: "Report and deck · Manhattan recommendation", rows: 6 },
     { key: "client_comment", label: "Client feedback", where: "Report · shown in grey under the finding", rows: 2 },
+    { key: "expected_gain", label: "Expected gain", where: "Deck · top-item slide, big figure under Expected Value", rows: 1, ph: "e.g. 0.3 FTE" },
+    { key: "gain_details", label: "Gain details", where: "Deck · bullets under the expected gain, one per line", rows: 3, ph: "e.g. iLPNs over 70 units: ~30/day\nCumulated waiting time: ~10 min" },
+    { key: "feasibility_note", label: "Feasibility note", where: "Deck · bullet under the feasibility gauge", rows: 1, ph: "e.g. Simple parameter activation" },
     { key: "comments", label: "Internal comments", where: "Never in the report or deck", rows: 3, internal: true },
   ];
   // Unsaved text, per finding and field, so moving quickly between fields never drops a change.
@@ -744,7 +747,7 @@
         </div>
         ${TEXTS.map((t) => `<label class="cp-panel-field${t.internal ? " is-internal" : ""}">
           <span class="cp-panel-label">${t.label}${t.key === "recommendation" && isDrafted(f) ? '<span class="cp-drafted" title="Drafted by Claude. Review it; it stops being marked once you change it.">✦ Drafted</span>' : ""}<em>${t.internal ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' : ""}${t.where}</em></span>
-          <textarea class="cp-input cp-textarea-sm" data-field="${t.key}" rows="${t.rows}" placeholder="${t.key === "recommendation" ? "What Manhattan recommends, and why" : ""}">${esc(f[t.key] || "")}</textarea>
+          <textarea class="cp-input cp-textarea-sm" data-field="${t.key}" rows="${t.rows}" placeholder="${t.key === "recommendation" ? "What Manhattan recommends, and why" : esc(t.ph || "")}">${esc(f[t.key] || "")}</textarea>
         </label>`).join("")}
         <label class="cp-panel-field">
           <span class="cp-panel-label">Theme<em>Report · groups findings under a sub-heading</em></span>

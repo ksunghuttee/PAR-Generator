@@ -28,7 +28,8 @@ HEADERS = {  # label used when a column has to be added
     "expected_value": "Expected Value", "feasibility": "Feasibility Score", "score": "Score",
     "complexity": "Complexity", "gain": "Gain", "issue": "Issue/pain point", "solution": "Solutions",
     "recommendation": "Recommendation", "comments": "Other Comments", "theme": "Theme",
-    "client_comment": "Client comment",
+    "client_comment": "Client comment", "expected_gain": "Expected Gain", "gain_details": "Gain Details",
+    "feasibility_note": "Feasibility Note",
 }
 SCORING_KEYS = ("expected_value", "feasibility", "score", "client_comment")
 

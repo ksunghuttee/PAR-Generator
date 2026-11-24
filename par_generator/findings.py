@@ -32,6 +32,10 @@ FINDINGS_COLUMNS = {
     # optional
     "theme": ["theme", "topic", "group"],
     "recommendation": ["recommendation", "manhattan recommendation", "recommendations"],
+    # optional, for the top-item slides
+    "expected_gain": ["expected gain", "estimated gain", "gain estimate"],
+    "gain_details": ["gain details", "gain detail", "expected gain details"],
+    "feasibility_note": ["feasibility note", "feasability note", "feasibility comment", "feasability comment"],
 }
 REQUIRED = ["id", "activity", "name"]
 
@@ -105,6 +109,9 @@ class Finding:
     owner: str | None = None
     theme: str | None = None
     recommendation: str | None = None
+    expected_gain: str | None = None  # headline of the top-item slide's Expected Value, e.g. "0.3 FTE"
+    gain_details: str | None = None  # one bullet per line under it
+    feasibility_note: str | None = None  # bullet under the feasibility gauge
     expected_value: float | None = None
     feasibility: float | None = None
     score: float | None = None
@@ -282,7 +289,8 @@ class WorkbookError(ValueError):
 SCORE_FIELDS = ("expected_value", "feasibility", "score", "complexity", "gain")
 # Free text written on the page. `comments` is the workbook's "Other Comments" column:
 # internal notes that never appear in the client documents.
-TEXT_FIELDS = ("issue", "solution", "recommendation", "client_comment", "comments", "theme")
+TEXT_FIELDS = ("issue", "solution", "recommendation", "client_comment", "comments", "theme",
+               "expected_gain", "gain_details", "feasibility_note")
 EDITABLE = SCORE_FIELDS + TEXT_FIELDS
 MAX_TEXT = 20000
 
@@ -369,6 +377,9 @@ def load(source: str | bytes | BinaryIO, settings: Settings | None = None, overr
                 owner=get("owner"),
                 theme=get("theme"),
                 recommendation=get("recommendation"),
+                expected_gain=get("expected_gain"),
+                gain_details=get("gain_details"),
+                feasibility_note=get("feasibility_note"),
             )
         )
 

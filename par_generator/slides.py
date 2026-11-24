@@ -132,13 +132,14 @@ def _rect(slide, x, y, w, h, fill=None, theme=None):
     return s
 
 
-def _band(slide, x, y, w, h, text):
+def _band(slide, x, y, w, h, text, size=13, align=PP_ALIGN.CENTER):
     s = _rect(slide, x, y, w, h, theme=MSO_THEME_COLOR.ACCENT_1)
     tf = s.text_frame
-    tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+    tf.paragraphs[0].alignment = align
+    tf.margin_left = Emu(91440)
     r = tf.paragraphs[0].add_run()
     r.text = text
-    r.font.size, r.font.bold = Pt(13), True
+    r.font.size, r.font.bold = Pt(size), True
     r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
     return s
 
@@ -253,29 +254,91 @@ def _matrix_chart(slide, data: PARData, x, y, w, h):
     return gf
 
 
-def _gauge(slide, value, x, y, w, h):
-    value = max(0, min(FEASIBILITY_MAX, value or 0))
-    cd = CategoryChartData()
-    cd.categories = ["score", "rest", "hidden"]
-    cd.add_series("Feasibility", [value, FEASIBILITY_MAX - value, FEASIBILITY_MAX])
-    gf = slide.shapes.add_chart(XL_CHART_TYPE.DOUGHNUT, Emu(x), Emu(y), Emu(w), Emu(h), cd)
-    ch = gf.chart
-    ch.has_legend = False
-    ch.has_title = False
-    plot = ch.plots[0]
-    dn = plot._element
-    dn.find(qn("c:firstSliceAng")).set("val", "270")
-    dn.find(qn("c:holeSize")).set("val", "62")
-    ser = plot.series[0]
-    for i, colour in enumerate(("2E9E5B", "D9D9D9", None)):
-        pt = ser.points[i]
-        if colour:
-            pt.format.fill.solid()
-            pt.format.fill.fore_color.rgb = _rgb(colour)
-        else:
-            pt.format.fill.background()
-        pt.format.line.fill.background()
-    return gf
+GAUGE_COLOURS = ("D6DFF1", "8FAADC", "4472C4")  # complex -> simple, as in the source deck
+NEEDLE = "ED7D31"
+# Statuses shown as a green "Done" stamp ("Analysis completed" is not: the action itself is still to do).
+DONE_STATUSES = ("done", "closed", "implemented", "live", "activated", "fait", "deployed", "in production")
+
+
+def _gauge(slide, value, x, y, w):
+    """Half-circle gauge in three blue segments (Complex on the left, Simple on the right) with a
+    needle pointing at the feasibility score. Built from shapes so it renders the same everywhere."""
+    import math
+
+    from pptx.enum.shapes import MSO_CONNECTOR
+
+    h = w  # the arcs are drawn on a w x w square; only the top half shows
+    for i, colour in enumerate(GAUGE_COLOURS):
+        arc = slide.shapes.add_shape(MSO_SHAPE.BLOCK_ARC, Emu(x), Emu(y), Emu(w), Emu(h))
+        a0, a1 = 180 + 60 * i, 180 + 60 * (i + 1)  # degrees clockwise from 3 o'clock
+        # python-pptx scales adjustments by 1/100000; angles are stored in 60000ths of a degree.
+        arc.adjustments[0], arc.adjustments[1], arc.adjustments[2] = a0 * 0.6, (a1 % 360) * 0.6, 0.2
+        arc.fill.solid()
+        arc.fill.fore_color.rgb = _rgb(colour)
+        arc.line.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        arc.line.width = Pt(1.5)
+        arc.shadow.inherit = False
+    # baseline under the arc, then the needle
+    cx, cy, r = x + w // 2, y + h // 2, int(w * 0.47)
+    base = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Emu(x), Emu(cy), Emu(x + w), Emu(cy))
+    base.line.color.rgb = _rgb("4472C4")
+    base.line.width = Pt(2.25)
+    if value is not None:
+        t = max(0.0, min(1.0, float(value) / FEASIBILITY_MAX))
+        ang = math.radians(180 + 180 * t)
+        ex, ey = cx + int(r * math.cos(ang)), cy + int(r * math.sin(ang))
+        nd = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Emu(cx), Emu(cy), Emu(ex), Emu(ey))
+        nd.line.color.rgb = _rgb(NEEDLE)
+        nd.line.width = Pt(2)
+        ln = nd.line._get_or_add_ln()
+        tail = etree.SubElement(ln, qn("a:tailEnd"))
+        tail.set("type", "triangle")
+    return cy
+
+
+def _bullets(slide, x, y, w, h, lines, size=12, color=None):
+    """A text box with one bullet per line ('- ' or '• ' prefixes are dropped)."""
+    tb = _textbox(slide, x, y, w, h, "", size=size)
+    tf = tb.text_frame
+    for i, line in enumerate(lines):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        pPr = p._p.get_or_add_pPr()
+        pPr.set("marL", "228600")
+        pPr.set("indent", "-228600")
+        etree.SubElement(pPr, qn("a:buFont")).set("typeface", "Arial")
+        etree.SubElement(pPr, qn("a:buChar")).set("char", "•")
+        for chunk, is_bold in split_bold(re.sub(r"^\s*[-•–]\s*", "", line)):
+            r = p.add_run()
+            r.text, r.font.size = chunk, Pt(size)
+            r.font.bold = is_bold or None
+            if color:
+                r.font.color.rgb = _rgb(color)
+    return tb
+
+
+def _rich_paragraphs(tf, text, size):
+    """Recommendation text: blank lines kept as spacing, '- ' / '• ' lines as bullets."""
+    first = True
+    for line in text.split("\n"):
+        p = tf.paragraphs[0] if first else tf.add_paragraph()
+        first = False
+        m = re.match(r"^\s*[-•–]\s+(.*)$", line)
+        if m:
+            pPr = p._p.get_or_add_pPr()
+            pPr.set("marL", "285750")
+            pPr.set("indent", "-285750")
+            etree.SubElement(pPr, qn("a:buFont")).set("typeface", "Arial")
+            etree.SubElement(pPr, qn("a:buChar")).set("char", "•")
+            line = m.group(1)
+        for chunk, is_bold in split_bold(line):
+            r = p.add_run()
+            r.text, r.font.size = chunk, Pt(size)
+            r.font.bold = is_bold or None
+
+
+def _cell_border(shape):
+    shape.line.color.rgb = _rgb("BFBFBF")
+    shape.line.width = Pt(0.75)
 
 
 def _top_item_slide(prs, layout, f: Finding, client: str):
@@ -284,94 +347,129 @@ def _top_item_slide(prs, layout, f: Finding, client: str):
         idx = ph.placeholder_format.idx
         if idx == 0:
             ph.text_frame.text = "Top Items"
+            r = ph.text_frame.paragraphs[0].runs[0]
+            r.font.bold = True
+            r.font.name = BOLD_FONT
         elif idx == 26:
             ph.text_frame.text = f"{f.rank}. {f.name}"
         else:
             ph._element.getparent().remove(ph._element)
 
     # Grid in EMU, taken from the hand-built top-item slide of the source deck.
-    top, band, left_w, mid_w, right_x, right_w = 1466851, 452536, 2794000, 5627865, 8421865, 3770135
+    # The right column stops before the template's vertical copyright strip.
+    top, band, left_w, mid_w, right_x, right_w = 1466851, 452536, 2794000, 5627865, 8421865, 3108135
     body_y, bottom = 3353421, 6858000
+    row = (body_y - top - 2 * band) // 2  # Process and Type value rows
 
-    # Backgrounds
-    _rect(s, 0, top, left_w, body_y - top, fill=LIGHT)
-    _rect(s, right_x, top, right_w, bottom - top, fill=LIGHT)
+    # Cell backgrounds with thin borders, as in a table
+    for (x, y, w, h, fill) in (
+        (0, top + band, left_w, row, LIGHT),
+        (0, top + 2 * band + row, left_w, row, LIGHT),
+        (left_w, top + band, mid_w, body_y - top - band, LIGHT),
+        (right_x, top + band, right_w, body_y - top - band, LIGHT),
+        (0, body_y + band, left_w + mid_w, bottom - body_y - band, LIGHT),
+        (right_x, body_y + band, right_w, bottom - body_y - band, LIGHT),
+    ):
+        _cell_border(_rect(s, x, y, w, h, fill=fill))
 
     # Process / Type
-    _band(s, 0, top, left_w, band, "Process")
-    _textbox(s, 0, top + band, left_w, 480000, f.activity, size=13, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-    _band(s, 0, top + band + 480000, left_w, band, "Type")
-    _textbox(s, 0, top + 2 * band + 480000, left_w, body_y - (top + 2 * band + 480000), f.solution_type or "—",
-             size=12, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-
-    # Issue
-    _band(s, left_w, top, mid_w, band, "Issue")
-    _textbox(s, left_w, top + band, mid_w, body_y - top - band, f.issue or "", size=_fit(f.issue, ((200, 12), (380, 11), (560, 10))),
+    _band(s, 0, top, left_w, band, "Process", size=16)
+    _textbox(s, 0, top + band, left_w, row, f.activity, size=16, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+    _band(s, 0, top + band + row, left_w, band, "Type", size=16)
+    _textbox(s, 0, top + 2 * band + row, left_w, row, f.solution_type or "—", size=16, align=PP_ALIGN.CENTER,
              anchor=MSO_ANCHOR.MIDDLE)
 
+    # Issue
+    _band(s, left_w, top, mid_w, band, "Issue", size=16, align=PP_ALIGN.LEFT)
+    _textbox(s, left_w + 60000, top + band, mid_w - 120000, body_y - top - band, f.issue or "",
+             size=_fit(f.issue, ((160, 15), (300, 13), (480, 12), (700, 11))), anchor=MSO_ANCHOR.MIDDLE)
+
     # Recommendation
-    _band(s, 0, body_y, left_w + mid_w, band, "Recommendation")
-    tb = _textbox(s, 0, body_y + band, left_w + mid_w, bottom - body_y - band - 60000, "", size=11)
+    _band(s, 0, body_y, left_w + mid_w, band, "Recommendation", size=16, align=PP_ALIGN.LEFT)
+    tb = _textbox(s, 0, body_y + band + 40000, left_w + mid_w, bottom - body_y - band - 80000, "", size=14)
     tf = tb.text_frame
-    p = tf.paragraphs[0]
     if f.recommendation:
-        size = _fit(f.recommendation, ((500, 12), (900, 11), (1300, 10)))
-        for i, line in enumerate(f.recommendation.split("\n")):
-            p = p if i == 0 else tf.add_paragraph()
-            r = p.add_run()
-            r.text, r.font.size = line, Pt(size)
+        _rich_paragraphs(tf, f.recommendation, _fit(f.recommendation, ((420, 15), (700, 14), (1000, 12), (1400, 11))))
     else:
+        p = tf.paragraphs[0]
         if f.solution:
             r = p.add_run()
-            r.text, r.font.size = "Solution: ", Pt(12)
-            r.font.bold = True
+            r.text, r.font.size, r.font.bold = "Solution: ", Pt(14), True
             r = p.add_run()
-            r.text, r.font.size = f.solution, Pt(12)
+            r.text, r.font.size = f.solution, Pt(14)
             p = tf.add_paragraph()
         r = p.add_run()
-        r.text, r.font.size = "[Write the Manhattan recommendation]", Pt(12)
+        r.text, r.font.size = "[Write the Manhattan recommendation]", Pt(14)
         _highlight(r)
         # Internal comments and next actions never go into the client deck.
 
-    # Feasibility gauge
-    _band(s, right_x, top, right_w, band, "Feasibility Score")
-    gw, gh = 1900000, 1900000
+    # Feasibility gauge: Complex on the left, Simple on the right
+    _band(s, right_x, top, right_w, band, "Feasibility Score", size=16)
+    gw = 1550000
     gx = right_x + (right_w - gw) // 2
-    _gauge(s, f.feasibility, gx, top + band + 40000, gw, gh)
-    mid_y = top + band + 40000 + gh // 2
-    _textbox(s, gx + gw // 2 - 600000, mid_y - 380000, 1200000, 360000,
-             f"{f.feasibility:g}/{FEASIBILITY_MAX}" if f.feasibility is not None else "n/a",
-             size=16, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
-    _textbox(s, gx - 650000, mid_y - 30000, 700000, 240000, "Complex", size=9, color=GREY, align=PP_ALIGN.RIGHT)
-    _textbox(s, gx + gw - 50000, mid_y - 30000, 700000, 240000, "Simple", size=9, color=GREY)
-    _textbox(s, right_x, mid_y + 230000, right_w, 300000, f"Complexity: {f.complexity or 'TBD'}", size=11,
-             align=PP_ALIGN.CENTER)
+    gy = top + band + 130000
+    cy = _gauge(s, f.feasibility, gx, gy, gw)
+    _textbox(s, gx - 1000000, cy - 300000, 1000000, 280000, "Complex", size=12, align=PP_ALIGN.RIGHT)
+    _textbox(s, gx + gw, cy - 300000, 1000000, 280000, "Simple", size=12)
+    note = f.feasibility_note or (f"Complexity: {f.complexity}" if f.complexity else "Complexity to be assessed")
+    _bullets(s, right_x + 60000, cy + 90000, right_w - 120000, body_y - cy - 110000, [note], size=12)
 
-    # Expected value
-    _band(s, right_x, body_y, right_w, band, "Expected Value")
-    ev_lines = [f"**Gain: {f.gain or 'TBD'}**"]
-    if f.expected_value is not None:
-        ev_lines.append(f"Value score {f.expected_value:g} · Priority score {f.score:g}")
-    flags = [lbl for lbl, v in (("Retrofit", f.retrofit), ("Global adoption", f.global_adoption)) if (v or "").lower() == "yes"]
-    if flags:
-        ev_lines.append("Eligible: " + ", ".join(flags))
-    _textbox(s, right_x, body_y + band + 80000, right_w, 1000000, "\n".join(ev_lines), size=12, align=PP_ALIGN.CENTER)
+    # Expected value: a headline figure (e.g. "0.3 FTE"), then bullets
+    _band(s, right_x, body_y, right_w, band, "Expected Value", size=16)
+    head = f.expected_gain or (f"{f.gain} gain" if f.gain else "To be quantified")
+    hb = _textbox(s, right_x, body_y + band + 40000, right_w, 520000, "", align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+    hp = hb.text_frame.paragraphs[0]
+    hp.alignment = PP_ALIGN.CENTER
+    m = re.match(r"^\s*([~≈<>]?\s*[\d.,]+\s*%?)\s*(.*)$", head)  # "0.3 FTE" -> figure + unit
+    parts = [(m.group(1).strip(), False), (m.group(2), True)] if m and m.group(2) else [(head, False)]
+    for i, (chunk, unit) in enumerate(parts):
+        r = hp.add_run()
+        r.text = chunk + (" " if i == 0 and len(parts) > 1 else "")
+        r.font.size, r.font.bold = Pt(24 if len(head) < 18 else 18), True
+        if unit:
+            r.font.color.rgb = _rgb("404040")
+            rPr = r._r.get_or_add_rPr()
+            hl = etree.SubElement(rPr, qn("a:highlight"))
+            etree.SubElement(hl, qn("a:srgbClr")).set("val", "D9D9D9")
+    details = [ln for ln in (f.gain_details or "").split("\n") if ln.strip()]
+    if not details:
+        if f.expected_value is not None:
+            details.append(f"Value score {f.expected_value:g}/{FEASIBILITY_MAX}")
+        if f.score is not None:
+            details.append(f"Priority score {f.score:g}")
+        flags = [lbl for lbl, v in (("retrofit", f.retrofit), ("global adoption", f.global_adoption)) if (v or "").lower() == "yes"]
+        if flags:
+            details.append("Eligible for " + " and ".join(flags))
     if f.client_comment:
-        _textbox(s, right_x, body_y + band + 1150000, right_w, bottom - body_y - band - 1200000,
-                 f"{client} feedback: {f.client_comment}", size=9, italic=True, color=GREY)
+        details.append(f"{client} feedback: {f.client_comment}")
+    _bullets(s, right_x + 60000, body_y + band + 600000, right_w - 120000, bottom - body_y - band - 650000, details,
+             size=12 if sum(len(d) for d in details) < 220 else 11)
 
-    # Status badge
+    # Team tag (top right, like "IT") and status stamp
+    if f.owner:
+        _textbox(s, 11550000, 60000, 600000, 380000, f.owner, size=16, bold=True, align=PP_ALIGN.RIGHT)
     if f.status:
-        badge = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Emu(9300000), Emu(560000), Emu(2200000), Emu(360000))
-        badge.fill.solid()
-        done = f.status.lower() in ("analysis completed", "closed", "done")
-        badge.fill.fore_color.rgb = _rgb("2E9E5B" if done else "ED7D31")
-        badge.line.fill.background()
-        badge.shadow.inherit = False
-        r = badge.text_frame.paragraphs[0].add_run()
-        r.text, r.font.size, r.font.bold = f.status, Pt(11), True
+        done = f.status.strip().lower() in DONE_STATUSES
+        stamp = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Emu(9050000), Emu(470000), Emu(1450000), Emu(430000))
+        stamp.rotation = 15
+        stamp.fill.solid()
+        stamp.fill.fore_color.rgb = _rgb("70AD47" if done else "ED7D31")
+        stamp.line.color.rgb = _rgb("507E32" if done else "B4581F")
+        stamp.shadow.inherit = False
+        tf = stamp.text_frame
+        tf.word_wrap = True
+        r = tf.paragraphs[0].add_run()
+        r.text = "Done" if done else f.status
+        r.font.size, r.font.bold = Pt(16 if done else 11), True
         r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-        badge.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+        tf.paragraphs[0].alignment = PP_ALIGN.CENTER
+        if done:  # a green tick, drawn (a ✔ character renders as an emoji in some viewers)
+            from pptx.enum.shapes import MSO_CONNECTOR
+
+            for (x1, y1, x2, y2) in ((10620000, 960000, 10760000, 1090000), (10760000, 1090000, 11020000, 830000)):
+                tick = s.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Emu(x1), Emu(y1), Emu(x2), Emu(y2))
+                tick.line.color.rgb = _rgb("22A35A")
+                tick.line.width = Pt(4.5)
     return s
 
 

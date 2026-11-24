@@ -10,6 +10,7 @@ import pytest
 from docx import Document
 from fastapi.testclient import TestClient
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE
 
 from par_generator import content, findings, slides, word
 from par_generator import workbook as wb_writer
@@ -145,7 +146,9 @@ def test_deck():
     assert len(prs.slides) == 14 + len(d.top_items())
     assert prs.slides[-1].slide_layout.name == "3_Title Slide"  # "Questions" closing slide stays last
     charts = [sh for s in prs.slides for sh in s.shapes if sh.has_chart]
-    assert len(charts) == 3 + len(d.top_items())  # matrix + 2 bars + one gauge per top item
+    assert len(charts) == 3  # matrix + 2 bars (native, editable)
+    arcs = [sh for s in prs.slides for sh in s.shapes if sh.shape_type == 1 and sh.auto_shape_type == MSO_SHAPE.BLOCK_ARC]  # 1 = auto shape
+    assert len(arcs) == 3 * len(d.top_items())  # a three-segment feasibility gauge per top item
 
 
 def test_api_roundtrip():
@@ -379,3 +382,22 @@ def test_conclusion_in_report():
     text = [p.text for p in Document(io.BytesIO(r.content)).paragraphs]
     i = text.index("Conclusion")
     assert "First line." in text[i:i + 4] and "Second line." in text[i:i + 5]
+
+
+def test_top_item_slide_fields():
+    d = findings.load(workbook(extra_cols={"Expected Gain": {1: "0.3 FTE"}, "Gain Details": {1: "Waiting: ~10 min/day\nErrors: ~30/day"},
+                                           "Feasibility Note": {1: "Simple parameter activation"}}))
+    f1 = next(f for f in d.findings if f.id == 1)
+    assert (f1.expected_gain, f1.feasibility_note) == ("0.3 FTE", "Simple parameter activation")
+    prs = Presentation(io.BytesIO(slides.build_deck(d, _meta(d))))
+    texts = ["\n".join(sh.text_frame.text for sh in s.shapes if sh.has_text_frame) for s in prs.slides]
+    top1 = next(t for t in texts if "1. Speed up ASN receipt" in t)
+    for want in ("Process", "Issue", "Feasibility Score", "Recommendation", "Expected Value", "0.3 FTE",
+                 "Waiting: ~10 min/day", "Simple parameter activation", "Complex", "Simple"):
+        assert want in top1, want
+    assert "note a" not in top1  # internal comments stay out
+    # Edited on the page, then written back into new workbook columns
+    out = wb_writer.write_back(workbook(), {"2": {"expected_gain": "2 h/day", "feasibility_note": "Needs design"}})
+    d2 = findings.load(out)
+    f2 = next(f for f in d2.findings if f.id == 2)
+    assert (f2.expected_gain, f2.feasibility_note) == ("2 h/day", "Needs design")

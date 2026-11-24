@@ -301,26 +301,87 @@
       if (quick.length > 12) qw.addText(`+ ${quick.length - 12} more in the report`, { x: 0.6, y: 6.6, w: 6, h: 0.3, fontFace: font, fontSize: 11, color: GREY });
     }
 
-    // One slide per top item
-    for (const f of data.top_items.map((i) => ids.get(String(i))).filter(Boolean)) {
-      const sl = slide(`#${f.rank} · ${f.name}`);
-      sl.addText(`${f.activity || ""} · ID ${f.id}`, { x: 0.5, y: 0.95, w: 9, h: 0.35, fontFace: font, fontSize: 12, color: BLUE });
-      const block = [];
-      const add = (title, text) => { if (!text) return; block.push({ text: title, options: { bold: true, color: NAVY, breakLine: true } }, { text, options: { color: INK, breakLine: true } }, { text: " ", options: { breakLine: true, fontSize: 6 } }); };
-      add("Observation", f.issue); add("Proposed solution", f.solution); add("Manhattan recommendation", f.recommendation || "To be written.");
-      sl.addText(block, { x: 0.5, y: 1.4, w: 8.6, h: 5.4, fontFace: font, fontSize: 13, valign: "top" });
-      const c = f.quadrant ? QUAD[f.quadrant][1] : ACCENT;
-      sl.addShape(p.ShapeType.roundRect, { x: 9.5, y: 1.4, w: 3.3, h: 4.2, fill: { color: "F2F5FB" }, line: { color: "D9E1F2" }, rectRadius: 0.1 });
-      sl.addText([
-        { text: "Score", options: { color: GREY, fontSize: 12, breakLine: true } },
-        { text: num(f.score), options: { color: c, fontSize: 40, bold: true, breakLine: true } },
-        { text: f.quadrant ? QUAD[f.quadrant][0] : "", options: { color: c, bold: true, fontSize: 13, breakLine: true } },
-        { text: " ", options: { breakLine: true, fontSize: 8 } },
-        { text: `Expected value  ${num(f.expected_value)}`, options: { breakLine: true } },
-        { text: `Feasibility  ${num(f.feasibility)}`, options: { breakLine: true } },
-        { text: `Complexity  ${f.complexity || "–"}`, options: { breakLine: true } },
-        { text: `Gain  ${f.gain || "–"}`, options: { breakLine: true } },
-      ], { x: 9.7, y: 1.55, w: 2.9, h: 3.9, fontFace: font, fontSize: 13, color: INK, align: "center", valign: "top" });
+    // One slide per top item, in the source deck's format (same grid as par_generator/slides.py)
+    for (const f of data.top_items.map((i) => ids.get(String(i))).filter(Boolean)) topItemSlide(f);
+
+    function topItemSlide(f) {
+      const sl = p.addSlide();
+      sl.background = { color: "FFFFFF" };
+      const top = 1.604, band = 0.495, leftW = 3.056, midW = 6.155, rightX = 9.211, rightW = 3.399, bodyY = 3.667, bottom = 7.5;
+      const row = (bodyY - top - 2 * band) / 2, LIGHT = "F2F2F2", BORDER = { color: "BFBFBF", width: 0.75 };
+      // Header
+      sl.addShape(p.ShapeType.rect, { x: 0, y: 0, w: rightX + rightW, h: top, fill: { color: "EDEDED" }, line: { color: "EDEDED" } });
+      sl.addText("Top Items", { x: 0.55, y: 0.18, w: 7.5, h: 0.75, fontFace: font, fontSize: 40, bold: true, color: "111111", margin: 0 });
+      sl.addText(`${f.rank}. ${f.name}`, { x: 0.55, y: 0.92, w: 8.2, h: 0.5, fontFace: font, fontSize: 22, color: "7F7F7F", margin: 0, fit: "shrink" });
+      if (f.owner) sl.addText(f.owner, { x: W - 1.2, y: 0.05, w: 1.05, h: 0.4, fontFace: font, fontSize: 16, bold: true, color: "111111", align: "right" });
+      if (f.status) {
+        const done = /^(done|closed|implemented|live|activated|fait|deployed|in production)$/i.test(f.status);
+        sl.addText(done ? "Done" : f.status, { shape: p.ShapeType.roundRect, x: 9.9, y: 0.52, w: 1.6, h: 0.47, rotate: 15, rectRadius: 0.06,
+          fill: { color: done ? "70AD47" : "ED7D31" }, line: { color: done ? "507E32" : "B4581F", width: 1 },
+          fontFace: font, fontSize: done ? 16 : 11, bold: true, color: "FFFFFF", align: "center", valign: "middle" });
+        if (done) {
+          sl.addShape(p.ShapeType.line, { x: 11.62, y: 1.05, w: 0.15, h: 0.14, line: { color: "22A35A", width: 4.5 } });
+          sl.addShape(p.ShapeType.line, { x: 11.77, y: 0.91, w: 0.28, h: 0.28, flipV: true, line: { color: "22A35A", width: 4.5 } });
+        }
+      }
+      // Cells, then the blue header bands
+      for (const [x, y, w, h] of [[0, top + band, leftW, row], [0, top + 2 * band + row, leftW, row], [leftW, top + band, midW, bodyY - top - band],
+        [rightX, top + band, rightW, bodyY - top - band], [0, bodyY + band, leftW + midW, bottom - bodyY - band], [rightX, bodyY + band, rightW, bottom - bodyY - band]])
+        sl.addShape(p.ShapeType.rect, { x, y, w, h, fill: { color: LIGHT }, line: BORDER });
+      const bandBox = (text, x, y, w, align = "center") => sl.addText(text, { x, y, w, h: band, fill: { color: ACCENT }, line: { color: ACCENT },
+        fontFace: font, fontSize: 16, bold: true, color: "FFFFFF", align, valign: "middle", margin: [8, 8, 0, 0] }); // [left, right, bottom, top]
+      bandBox("Process", 0, top, leftW);
+      sl.addText(f.activity || "", { x: 0, y: top + band, w: leftW, h: row, fontFace: font, fontSize: 16, color: INK, align: "center", valign: "middle" });
+      bandBox("Type", 0, top + band + row, leftW);
+      sl.addText(f.solution_type || "–", { x: 0, y: top + 2 * band + row, w: leftW, h: row, fontFace: font, fontSize: 16, color: INK, align: "center", valign: "middle" });
+      bandBox("Issue", leftW, top, midW, "left");
+      const isz = (n) => (n <= 160 ? 15 : n <= 300 ? 13 : n <= 480 ? 12 : 11);
+      sl.addText(f.issue || "", { x: leftW + 0.07, y: top + band, w: midW - 0.14, h: bodyY - top - band, fontFace: font, fontSize: isz((f.issue || "").length), color: INK, valign: "middle" });
+
+      // Recommendation ("- " lines become bullets)
+      bandBox("Recommendation", 0, bodyY, leftW + midW, "left");
+      const reco = f.recommendation || "";
+      const rsz = reco.length <= 420 ? 15 : reco.length <= 700 ? 14 : reco.length <= 1000 ? 12 : 11;
+      const recoRuns = reco ? reco.split("\n").map((line, i, all) => {
+        const m = line.match(/^\s*[-•–]\s+(.*)$/);
+        return { text: m ? m[1] : line, options: { bullet: m ? { indent: 18 } : false, breakLine: i < all.length - 1 } };
+      }) : [{ text: (f.solution ? `Solution: ${f.solution}\n` : "") + "[Write the Manhattan recommendation]", options: { highlight: "FFFF00" } }];
+      sl.addText(recoRuns, { x: 0.05, y: bodyY + band + 0.05, w: leftW + midW - 0.1, h: bottom - bodyY - band - 0.1, fontFace: font, fontSize: rsz, color: INK, valign: "top" });
+
+      // Feasibility gauge: three blue segments, Complex (left) to Simple (right), needle at the score
+      bandBox("Feasibility Score", rightX, top, rightW);
+      const gw = 1.7, gx = rightX + (rightW - gw) / 2, gy = top + band + 0.14, cx = gx + gw / 2, cy = gy + gw / 2, r = gw * 0.47;
+      ["D6DFF1", "8FAADC", "4472C4"].forEach((c, i) => sl.addShape(p.ShapeType.blockArc, { x: gx, y: gy, w: gw, h: gw,
+        angleRange: [180 + 60 * i, (180 + 60 * (i + 1)) % 360], arcThicknessRatio: 0.4, fill: { color: c }, line: { color: "FFFFFF", width: 1.5 } }));
+      sl.addShape(p.ShapeType.line, { x: gx, y: cy, w: gw, h: 0, line: { color: "4472C4", width: 2.25 } });
+      if (f.feasibility !== null && f.feasibility !== undefined) {
+        const t = Math.max(0, Math.min(1, f.feasibility / 20)), a = Math.PI * (1 + t);
+        const ex = cx + r * Math.cos(a), ey = cy + r * Math.sin(a), needle = { color: "ED7D31", width: 2 };
+        if (ex >= cx) sl.addShape(p.ShapeType.line, { x: cx, y: ey, w: ex - cx, h: cy - ey, flipV: true, line: { ...needle, endArrowType: "triangle" } });
+        else sl.addShape(p.ShapeType.line, { x: ex, y: ey, w: cx - ex, h: cy - ey, line: { ...needle, beginArrowType: "triangle" } });
+      }
+      sl.addText("Complex", { x: gx - 1.1, y: cy - 0.33, w: 1.1, h: 0.3, fontFace: font, fontSize: 12, color: INK, align: "right" });
+      sl.addText("Simple", { x: gx + gw, y: cy - 0.33, w: 1.1, h: 0.3, fontFace: font, fontSize: 12, color: INK });
+      const note = f.feasibility_note || (f.complexity ? `Complexity: ${f.complexity}` : "Complexity to be assessed");
+      sl.addText([{ text: note, options: { bullet: { indent: 14 } } }], { x: rightX + 0.07, y: cy + 0.1, w: rightW - 0.14, h: bodyY - cy - 0.12, fontFace: font, fontSize: 12, color: INK, valign: "top" });
+
+      // Expected value: headline (e.g. "0.3 FTE", unit on grey) and bullets
+      bandBox("Expected Value", rightX, bodyY, rightW);
+      const head = f.expected_gain || (f.gain ? `${f.gain} gain` : "To be quantified");
+      const hm = head.match(/^\s*([~≈<>]?\s*[\d.,]+\s*%?)\s*(.+)$/);
+      const hsz = head.length < 18 ? 24 : 18;
+      sl.addText(hm ? [{ text: hm[1].trim() + " ", options: {} }, { text: hm[2], options: { color: "404040", highlight: "D9D9D9" } }] : [{ text: head, options: {} }],
+        { x: rightX, y: bodyY + band + 0.05, w: rightW, h: 0.57, fontFace: font, fontSize: hsz, bold: true, color: "111111", align: "center", valign: "middle" });
+      const details = lines(f.gain_details);
+      if (!details.length) {
+        if (f.expected_value !== null && f.expected_value !== undefined) details.push(`Value score ${num(f.expected_value)}/20`);
+        if (f.score !== null && f.score !== undefined) details.push(`Priority score ${num(f.score)}`);
+        const flags = [["retrofit", f.retrofit], ["global adoption", f.global_adoption]].filter(([, v]) => String(v || "").toLowerCase() === "yes").map(([k]) => k);
+        if (flags.length) details.push("Eligible for " + flags.join(" and "));
+      }
+      if (f.client_comment) details.push(`${m.client} feedback: ${f.client_comment}`);
+      if (details.length) sl.addText(details.map((d, i) => ({ text: d.replace(/^\s*[-•–]\s*/, ""), options: { bullet: { indent: 14 }, breakLine: i < details.length - 1 } })),
+        { x: rightX + 0.07, y: bodyY + band + 0.66, w: rightW - 0.14, h: bottom - bodyY - band - 0.72, fontFace: font, fontSize: details.join("").length < 220 ? 12 : 11, color: INK, valign: "top" });
     }
 
     // Conclusion
