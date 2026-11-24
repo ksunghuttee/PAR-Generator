@@ -23,9 +23,9 @@
 
   // Spreadsheet columns. `edit` marks the five editable ones.
   const COLS = [
-    { key: "open", label: "", w: 30 },
-    { key: "id", label: "ID", w: 56, num: true, sticky: true, left: 30 },
-    { key: "name", label: "Finding", w: 250, sticky: true, left: 86, lastSticky: true },
+    { key: "open", label: "", w: 58 }, // row actions: write texts, ask researcher
+    { key: "id", label: "ID", w: 56, num: true, sticky: true, left: 58 },
+    { key: "name", label: "Finding", w: 250, sticky: true, left: 114, lastSticky: true },
     { key: "solution", label: "Solution description", w: 300, edit: "text" },
     { key: "expected_value", label: "Value", w: 72, num: true, edit: "num" },
     { key: "feasibility", label: "Feasibility", w: 100, num: true, edit: "num" },
@@ -41,7 +41,7 @@
   ];
   // With the writing panel open the sheet narrows: hide columns the panel already shows.
   const HIDE_WITH_PANEL = new Set(["solution", "activity", "solution_type", "status"]);
-  const cols = () => (state.panel || state.research ? COLS.filter((c) => !HIDE_WITH_PANEL.has(c.key)) : COLS);
+  const cols = () => (state.panel ? COLS.filter((c) => !HIDE_WITH_PANEL.has(c.key)) : COLS);
   const nav = () => cols().filter((c) => c.key !== "open").map((c) => c.key); // keyboard-navigable columns
   const colOf = (k) => COLS.find((c) => c.key === k);
 
@@ -51,7 +51,6 @@
     filters: { q: "", activity: "", priority: "", chip: "" }, summaryEdited: false,
     overrides: {}, sort: { key: null, dir: 1 },
     panel: null, // id of the finding open in the side panel
-    research: false, researchThread: [], // "Ask researcher" panel (placeholder, not connected)
     undo: [], redo: [],
     active: null, // { id, col }
     editing: null, // { id, col, td, input, original }
@@ -239,7 +238,8 @@
       case "open": {
         const open = state.panel === String(f.id);
         return `<td class="cp-grid-expand"><button type="button" class="cp-expand${open ? " is-open" : ""}" data-open="${esc(f.id)}" aria-label="Open finding ${esc(f.id)} to write its texts" title="Open to write the solution, recommendation and comments" tabindex="-1">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg></button></td>`;
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg></button><button type="button" class="cp-expand cp-ask" data-ask="${esc(f.id)}" aria-label="Ask researcher about finding ${esc(f.id)}" title="Ask researcher about this finding" tabindex="-1">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8z"/></svg></button></td>`;
       }
       case "reco": {
         if (f.discarded) return `<td ${attrs}></td>`;
@@ -315,7 +315,6 @@
   function setActive(id, col, scroll = true) {
     state.active = { id: String(id), col };
     markActive(scroll);
-    if (state.research) researchContext();
     if (state.panel && String(id) !== state.panel) { // the open panel follows the selected row
       flushText();
       state.panel = String(id);
@@ -485,6 +484,8 @@
   grid.addEventListener("click", (e) => {
     const op = e.target.closest("[data-open]");
     if (op) { openPanel(op.dataset.open); return; }
+    const ask = e.target.closest("[data-ask]");
+    if (ask) { askResearcher(ask.dataset.ask, ask); return; }
     const th = e.target.closest("th[data-sort]");
     if (th) {
       // Click cycle: first direction (high→low for numbers and levels, A→Z for text), reverse, workbook order.
@@ -617,7 +618,6 @@
   const pendingText = new Map();
 
   function openPanel(id, focusText = true) {
-    if (state.research) closeResearch(false);
     flushText();
     if (state.editing) commitEdit(0, 0);
     state.panel = String(id);
@@ -768,88 +768,35 @@
     else if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); flushText(); stepPanel(e.key === "ArrowDown" ? 1 : -1); }
   });
 
-  // ---- Ask researcher (placeholder: nothing is sent anywhere yet) -------------------------
-  const RESEARCH_SUGGESTIONS = [
-    "What do similar sites do about this?",
-    "Is there a base feature that solves this?",
-    "Which clients have this configured?",
-    "Draft a Manhattan recommendation",
-  ];
-  function openResearch() {
-    if (state.panel) closePanel();
-    state.research = true;
-    $("askResearcher").setAttribute("aria-expanded", "true");
-    $("askResearcher").classList.add("is-on");
-    $("gridView").classList.add("has-panel");
-    renderGrid();
-    renderResearch();
-    $("rqInput").focus();
+  // ---- Ask researcher (row level, placeholder: nothing is sent anywhere yet) ----------------
+  // Shows a brief "Asking researcher…" pop-up beside the button, then fades it out.
+  let askTimer = null;
+  function askResearcher(id, anchor) {
+    const f = byId().get(String(id));
+    if (!f) return;
+    setActive(f.id, state.active?.col || "expected_value", false);
+    let pop = $("askPop");
+    if (!pop) {
+      pop = document.createElement("div");
+      pop.id = "askPop";
+      pop.className = "cp-ask-pop";
+      pop.setAttribute("role", "status");
+      document.body.appendChild(pop);
+    }
+    pop.innerHTML = `<span class="cp-ask-dots" aria-hidden="true"><i></i><i></i><i></i></span>Asking researcher… <b>#${esc(f.id)}</b>`;
+    const r = anchor.getBoundingClientRect();
+    pop.style.left = `${Math.min(window.innerWidth - 240, r.right + 8)}px`;
+    pop.style.top = `${Math.max(8, r.top + r.height / 2 - 16)}px`;
+    pop.classList.remove("is-out");
+    pop.classList.add("is-in");
+    anchor.classList.add("is-asking");
+    clearTimeout(askTimer);
+    askTimer = setTimeout(() => {
+      pop.classList.add("is-out");
+      anchor.classList.remove("is-asking");
+      setTimeout(() => { pop.classList.remove("is-in", "is-out"); }, 300);
+    }, 1800);
   }
-  function closeResearch(focusGrid = true) {
-    state.research = false;
-    $("research").hidden = true;
-    $("askResearcher").setAttribute("aria-expanded", "false");
-    $("askResearcher").classList.remove("is-on");
-    if (!state.panel) $("gridView").classList.remove("has-panel");
-    renderGrid();
-    if (focusGrid) wrap.focus({ preventScroll: true });
-  }
-  function researchSubject() {
-    const f = state.active && byId().get(state.active.id);
-    return f ? `#${f.id} · ${f.name}` : "All findings in this PAR";
-  }
-  function researchContext() {
-    const el = $("rqContext");
-    if (el) el.textContent = researchSubject();
-  }
-  function renderResearch() {
-    const el = $("research");
-    el.innerHTML = `
-      <header class="cp-panel-head">
-        <strong class="cp-research-title">Ask researcher</strong>
-        <span class="cp-badge cp-badge-warning">Not connected yet</span>
-        <button type="button" class="cp-btn cp-btn-ghost cp-icon-btn" id="rqClose" title="Close (Esc)" aria-label="Close researcher" style="margin-left:auto">✕</button>
-      </header>
-      <div class="cp-panel-body cp-research-body">
-        <div class="cp-research-about"><span>About</span><b id="rqContext"></b></div>
-        <p class="cp-source-note">Ask about the selected finding or the whole PAR: similar cases, base features, clients with the same set-up, or a first draft of a recommendation. Select another row to change the subject.</p>
-        <div class="cp-research-suggest">${RESEARCH_SUGGESTIONS.map((q) => `<button type="button" class="cp-chip" data-rq="${esc(q)}">${esc(q)}</button>`).join("")}</div>
-        <div class="cp-research-thread" id="rqThread" aria-live="polite"></div>
-      </div>
-      <form class="cp-research-form" id="rqForm">
-        <textarea class="cp-input" id="rqInput" rows="2" placeholder="Ask a question… (Enter to send, Shift+Enter for a new line)" aria-label="Question for the researcher"></textarea>
-        <button type="submit" class="cp-btn">Send</button>
-      </form>`;
-    el.hidden = false;
-    researchContext();
-    drawThread();
-    $("rqClose").addEventListener("click", () => closeResearch());
-    el.querySelectorAll("[data-rq]").forEach((b) => b.addEventListener("click", () => askResearcher(b.dataset.rq)));
-    $("rqForm").addEventListener("submit", (e) => { e.preventDefault(); askResearcher($("rqInput").value); });
-    $("rqInput").addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askResearcher($("rqInput").value); }
-    });
-  }
-  function drawThread() {
-    const t = $("rqThread");
-    if (!t) return;
-    t.innerHTML = state.researchThread.map((m) => `<div class="cp-msg cp-msg-${m.who}">
-      ${m.who === "you" ? `<div class="cp-msg-about">${esc(m.about)}</div>` : ""}<div class="cp-msg-text">${esc(m.text)}</div></div>`).join("");
-    t.lastElementChild?.scrollIntoView({ block: "nearest" });
-  }
-  function askResearcher(text) {
-    text = String(text || "").trim();
-    if (!text) return;
-    state.researchThread.push({ who: "you", text, about: researchSubject() });
-    $("rqInput").value = "";
-    drawThread();
-    setTimeout(() => { // placeholder reply until the researcher service is connected
-      state.researchThread.push({ who: "bot", text: "The researcher isn't connected yet, so there's no answer for now. Once it is, it will reply here using the findings, the Client Profiler and past PARs." });
-      drawThread();
-    }, 400);
-  }
-  $("askResearcher").addEventListener("click", () => (state.research ? closeResearch() : openResearch()));
-  $("research").addEventListener("keydown", (e) => { if (e.key === "Escape") closeResearch(); });
 
   // ---- updated workbook ------------------------------------------------------------
   async function downloadWorkbook() {
