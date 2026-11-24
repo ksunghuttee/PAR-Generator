@@ -124,6 +124,11 @@
               <button type="button" class="cp-chip" data-chip="open">Still open</button>
             </div>
             <div class="cp-sheet-toolbar-right">
+              <div class="cp-mode-switch cp-reco-switch" id="recoView" role="group" aria-label="Recommendation column">
+                <span class="cp-reco-switch-label">Reco.</span>
+                <button type="button" class="cp-mode-btn active" data-reco="status" aria-pressed="true" title="Show whether each recommendation is written, drafted or still to write">Status</button>
+                <button type="button" class="cp-mode-btn" data-reco="full" aria-pressed="false" title="Show the whole recommendation text, editable in the cell">Full text</button>
+              </div>
               <div class="cp-progress" id="progress"></div>
             </div>
           </div>

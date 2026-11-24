@@ -597,3 +597,14 @@ html.theme-light .cp-btn-ai { color: #fff; }
 .cp-reco-ai { color: var(--app-accent); font-weight: 600; }
 .cp-drafted { display: inline-block; margin-left: 6px; padding: 0 6px; font-size: 10px; font-weight: 600; color: var(--app-accent); border: 1px solid currentColor; border-radius: 8px; vertical-align: 1px; }
 @media (max-width: 640px) { .cp-ai { grid-template-columns: 1fr; } .cp-ai-actions { justify-content: flex-start; } }
+
+/* Reco. column toggle and the full-text recommendation column */
+.cp-reco-switch { align-items: stretch; }
+.cp-reco-switch-label { display: flex; align-items: center; padding: 0 8px; font-size: 11px; font-weight: 600; color: var(--muted-color); border-right: 1px solid var(--input-border); }
+.cp-reco-switch .cp-mode-btn { padding: 4px 10px; font-size: 12px; }
+.cp-grid td.is-wrap { height: auto; padding: 6px 8px; white-space: normal; vertical-align: top; line-height: 1.45; }
+.cp-cell-wrap { white-space: pre-line; overflow-wrap: anywhere; }
+.cp-cell-wrap .cp-drafted { margin-left: 0; margin-right: 2px; }
+.cp-grid.is-full-reco td { height: 18px; vertical-align: top; padding-top: 6px; padding-bottom: 6px; line-height: 18px; }
+.cp-grid.is-full-reco td.cp-grid-expand { padding-top: 0; padding-bottom: 0; height: 30px; line-height: normal; }
+.cp-grid.is-full-reco td.is-editing { padding: 0; }

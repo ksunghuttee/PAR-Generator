@@ -35,13 +35,17 @@
     { key: "quadrant", label: "Priority", w: 104 },
     { key: "rank", label: "Top", w: 50, num: true },
     { key: "reco", label: "Reco.", w: 76 },
+    // Shown instead of "reco" when the toolbar's Reco. toggle is on "Full text".
+    { key: "recommendation", label: "Manhattan recommendation", w: 380, edit: "text", wrap: true },
     { key: "activity", label: "Activity", w: 140 },
     { key: "solution_type", label: "Solution type", w: 160 },
     { key: "status", label: "Status", w: 140 },
   ];
   // With the writing panel open the sheet narrows: hide columns the panel already shows.
   const HIDE_WITH_PANEL = new Set(["solution", "activity", "solution_type", "status"]);
-  const cols = () => (state.panel ? COLS.filter((c) => !HIDE_WITH_PANEL.has(c.key)) : COLS);
+  // Full text needs room: with the panel open (which shows the text anyway) the sheet keeps the status column.
+  const fullReco = () => state.recoView === "full" && !state.panel;
+  const cols = () => COLS.filter((c) => (fullReco() ? c.key !== "reco" : c.key !== "recommendation") && !(state.panel && HIDE_WITH_PANEL.has(c.key)));
   const nav = () => cols().filter((c) => c.key !== "open").map((c) => c.key); // keyboard-navigable columns
   const colOf = (k) => COLS.find((c) => c.key === k);
 
@@ -57,6 +61,7 @@
     pendingRender: false,
     drafted: {}, // id -> recommendation text Claude drafted (shown as "Drafted" until someone changes it)
     drafting: null, // AbortController while Claude drafts
+    recoView: (() => { try { return localStorage.getItem("par-reco-view") === "full" ? "full" : "status"; } catch (e) { return "status"; } })(),
   };
 
   // ---- embedding: report height to the host frame ---------------------------
@@ -254,7 +259,7 @@
   function cellHTML(f, c) {
     const locked = c.edit && f.discarded;
     const cls = [c.num ? "num" : "", c.edit ? "is-editable" : "", locked ? "is-locked" : "", c.edit && isEdited(f, c.key) ? "is-edited" : "",
-      c.sticky ? "is-sticky" : "", c.lastSticky ? "is-sticky-last" : "", c.edit === "text" ? "is-text" : ""].filter(Boolean).join(" ");
+      c.sticky ? "is-sticky" : "", c.lastSticky ? "is-sticky-last" : "", c.edit === "text" ? "is-text" : "", c.wrap ? "is-wrap" : ""].filter(Boolean).join(" ");
     const attrs = `data-col="${c.key}" role="gridcell" class="${cls}"${c.sticky ? ` style="left:${c.left}px"` : ""}`;
     switch (c.key) {
       case "open": {
@@ -269,6 +274,12 @@
         return f.recommendation
           ? `<td ${attrs} title="${esc(f.recommendation.slice(0, 300))}"><span class="cp-reco cp-reco-done">✓ Written</span></td>`
           : `<td ${attrs} title="No recommendation yet"><span class="cp-reco">To write</span></td>`;
+      }
+      case "recommendation": {
+        if (f.discarded) return `<td ${attrs}></td>`;
+        if (!f.recommendation) return `<td ${attrs}><span class="cp-cell-empty">To write…</span></td>`;
+        const tag = isDrafted(f) ? '<span class="cp-drafted" title="Drafted by Claude, to review">✦ Drafted</span> ' : "";
+        return `<td ${attrs}><div class="cp-cell-wrap">${tag}${esc(f.recommendation)}</div></td>`;
       }
       case "name": return `<td ${attrs} title="${esc(f.name)}">${esc(f.name)}</td>`;
       case "solution": {
@@ -301,6 +312,7 @@
     const rows = visibleRows();
     const sortMark = (k) => (state.sort.key === k ? (state.sort.dir > 0 ? " ▲" : " ▼") : "");
     const ariaSort = (k) => (state.sort.key === k ? (state.sort.dir > 0 ? "ascending" : "descending") : "none");
+    $("grid").classList.toggle("is-full-reco", fullReco());
     $("grid").innerHTML = `<colgroup>${cols().map((c) => (c.w ? `<col style="width:${c.w}px">` : "<col>")).join("")}</colgroup>
       <thead><tr>${cols().map((c) => c.key === "open" ? '<th class="cp-grid-expand" aria-label="Open"></th>' :
         `<th role="columnheader" data-sort="${c.key}" aria-sort="${ariaSort(c.key)}" class="${[c.num ? "num" : "", c.edit ? "is-editable" : "", c.sticky ? "is-sticky" : "", c.lastSticky ? "is-sticky-last" : ""].join(" ")}"${c.sticky ? ` style="left:${c.left}px"` : ""}
@@ -624,6 +636,25 @@
     document.querySelectorAll(".cp-chip").forEach((x) => x.classList.toggle("active", x.dataset.chip === state.filters.chip));
     renderGrid();
   });
+
+  // Reco. column: status badges, or the whole recommendation text.
+  function renderRecoSwitch() {
+    document.querySelectorAll("#recoView [data-reco]").forEach((b) => {
+      const on = b.dataset.reco === state.recoView;
+      b.classList.toggle("active", on); b.setAttribute("aria-pressed", on);
+    });
+  }
+  $("recoView").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-reco]");
+    if (!b || b.dataset.reco === state.recoView) return;
+    if (state.editing) commitEdit(0, 0);
+    state.recoView = b.dataset.reco;
+    try { localStorage.setItem("par-reco-view", state.recoView); } catch (err) { /* storage unavailable */ }
+    if (state.active && !nav().includes(state.active.col)) state.active.col = state.recoView === "full" ? "recommendation" : "reco";
+    renderRecoSwitch(); renderGrid();
+    if (state.recoView === "full" && state.panel) flash("Close the side panel to see the full recommendations in the sheet.");
+  });
+  renderRecoSwitch();
 
   /** Jump from the overview to a finding's row in the spreadsheet. */
   function openFinding(id) {
