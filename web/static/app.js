@@ -864,6 +864,12 @@
     ].filter((x) => x !== null && x !== undefined && x !== false).join("\n");
   }
   let askFor = null;
+  // Who answers: the configured researcher MCP, or the dummy WM expert.
+  (async () => {
+    let name = LOCAL ? (LOCAL.researcher && LOCAL.researcher.name) : null;
+    if (!LOCAL) { try { name = (await (await fetch("api/research")).json()).name; } catch (e) { /* keep the default */ } }
+    if (name) $("askWho").textContent = name;
+  })();
   function askResearcher(id) {
     const f = byId().get(String(id));
     if (!f) return;

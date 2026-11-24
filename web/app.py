@@ -112,8 +112,8 @@ async def draft(
 
 @app.get("/api/research")
 def research_status():
-    """Whether a researcher MCP server is configured (the page labels the button accordingly)."""
-    return {"configured": research.configured()}
+    """Which researcher answers: a configured MCP server, or the dummy WM expert."""
+    return research.status()
 
 
 @app.post("/api/research")

@@ -1,0 +1,199 @@
+{
+  "_about": "Knowledge base of the DUMMY WM expert researcher (par_generator/wm_expert.py and the preview). Generic, illustrative guidance only: answers are labelled as simulated and must be checked before use.",
+  "topics": [
+    {
+      "id": "waving",
+      "title": "Wave planning",
+      "keywords": ["wave", "waving", "cut-off", "cutoff", "deselection", "release", "template", "allocation"],
+      "summary": "Manual or late wave building usually comes from waves not being driven by templates tied to carrier cut-offs and order priorities. Moving to scheduled, template-based waves is typically a configuration change with a quick payback.",
+      "look_at": [
+        "Wave templates per carrier or cut-off, with order selection criteria and a maximum wave size",
+        "Scheduled (automatic) wave runs aligned with the carrier cut-off times",
+        "Allocation and deselection rules: why order lines drop out of waves (short stock, in-transit inventory)",
+        "Wave release KPIs: lines per wave, deselection rate, time from release to first pick"
+      ],
+      "watch_out": [
+        "Waves that are too large starve replenishment; too small ones increase travel",
+        "Templates need an owner: cut-off times change with carrier contracts"
+      ],
+      "next_step": "Map the current cut-offs and order types, build one template per carrier in a lower environment, and compare a week of wave KPIs before and after."
+    },
+    {
+      "id": "replenishment",
+      "title": "Replenishment",
+      "keywords": ["replenish", "replenishment", "pick face", "empty", "min", "max", "top-off", "demand"],
+      "summary": "Empty pick faces during picking point to min/max replenishment that does not anticipate wave demand. Demand-based (wave-triggered) replenishment, combined with periodic top-offs, usually removes most short picks.",
+      "look_at": [
+        "Replenishment triggered by wave demand in addition to min/max thresholds",
+        "Min/max values per item and location, reviewed against recent velocity",
+        "Task priority so replenishment tasks are executed before the picks that need them",
+        "Multi-pallet or grouped replenishment tasks per aisle to reduce reach-truck travel"
+      ],
+      "watch_out": [
+        "Demand replenishment without task priorities just moves the problem to the task queue",
+        "Pick-face capacity must hold at least one wave's demand for fast movers"
+      ],
+      "next_step": "Analyse a week of short picks by item and location, then pilot wave-triggered replenishment on the top fast movers."
+    },
+    {
+      "id": "picking",
+      "title": "Picking",
+      "keywords": ["pick", "picking", "cluster", "batch", "travel", "short pick", "pick path", "mezzanine", "zone"],
+      "summary": "Picking productivity is mostly travel: pick sequence, batching of small orders and task grouping are the main levers, and most are configuration rather than development.",
+      "look_at": [
+        "Pick sequence (location sequencing) matching the physical walking path",
+        "Cluster or batch picking for small orders, with a cart and container limits",
+        "Task grouping and task creation thresholds (avoid one task per line)",
+        "Short-pick handling: exception flow and the cycle count it should trigger"
+      ],
+      "watch_out": [
+        "Changing location sequences invalidates operators' habits: plan a floor walk-through",
+        "Cluster picking needs labels or containers that the packing station can read"
+      ],
+      "next_step": "Measure travel per line on two shifts, then test a revised pick sequence and cluster picking in one zone."
+    },
+    {
+      "id": "receiving",
+      "title": "Receiving",
+      "keywords": ["receiv", "receipt", "asn", "inbound", "mixed pallet", "multi-sku", "verification", "dock to stock", "new item"],
+      "summary": "Receiving delays usually come from manual steps around the ASN: closing and verifying ASNs by hand, scanning each case of mixed pallets, and new-item messages. Several of these are switches in the receiving configuration.",
+      "look_at": [
+        "Automatic ASN verification and closure once quantities are received",
+        "Receiving whole iLPNs or multi-SKU pallets in one scan when the ASN is reliable",
+        "Suppressing or simplifying item prompts that slow down each scan",
+        "Dock-to-stock time as the KPI to follow"
+      ],
+      "watch_out": [
+        "One-scan receiving relies on accurate supplier ASNs: check the supplier error rate first",
+        "Auto-closure needs a process for late or partial deliveries"
+      ],
+      "next_step": "Check ASN accuracy for the main suppliers, then enable the change for the most reliable ones first."
+    },
+    {
+      "id": "putaway",
+      "title": "Putaway and space",
+      "keywords": ["putaway", "put away", "reserve", "consolidat", "space", "return", "location", "directed"],
+      "summary": "Free or operator-chosen putaway wastes space and travel. Directed putaway with consolidation into partially filled locations and clear zones for returns usually improves both space utilisation and productivity.",
+      "look_at": [
+        "Directed putaway rules per item profile and zone",
+        "Consolidation priority into partially filled reserve locations (volume- or quantity-based)",
+        "A dedicated returns flow with its own putaway zone and rules",
+        "Space utilisation per allocation zone as the follow-up KPI"
+      ],
+      "watch_out": [
+        "Consolidation can increase putaway travel if not limited to the same aisle or zone",
+        "Location dimensions and item dimensions must be accurate for volume-based rules"
+      ],
+      "next_step": "Extract location occupancy by zone, then pilot consolidation rules in one reserve zone."
+    },
+    {
+      "id": "printing",
+      "title": "Labels and printing",
+      "keywords": ["label", "print", "printer", "lpn", "ilpn", "packing slip", "document"],
+      "summary": "Walking to shared printers is a classic hidden cost. Mapping printers per workstation or dock door, and printing at the right step, is configuration work with an immediate gain.",
+      "look_at": [
+        "Printer mapping per dock door, packing station or user location",
+        "Print triggers: at which step each label or document is produced",
+        "Customer- or carrier-specific document rules instead of manual reprints"
+      ],
+      "watch_out": [
+        "Each extra printer needs network, support and consumables: confirm with IT",
+        "Test label layouts with the carriers' scanners before go-live"
+      ],
+      "next_step": "List print events and walking distances per area, then map the busiest doors and stations first."
+    },
+    {
+      "id": "packing",
+      "title": "Packing",
+      "keywords": ["pack", "packing", "carton", "cartoniz", "scale", "weigh"],
+      "summary": "Packing speed depends on choosing the right carton up front and on avoiding manual data entry at the station (weights, documents).",
+      "look_at": [
+        "Cartonization at order release so the station knows the carton in advance",
+        "Scale integration to capture weights without typing",
+        "Packing station flow: scans per order and exception handling"
+      ],
+      "watch_out": [
+        "Cartonization needs accurate item dimensions",
+        "Hardware integration (scales) usually needs a design and testing phase"
+      ],
+      "next_step": "Measure time per order at the station and check item dimension quality before enabling cartonization."
+    },
+    {
+      "id": "shipping",
+      "title": "Shipping and dock",
+      "keywords": ["ship", "shipping", "carrier", "trailer", "load", "dock", "appointment", "truck", "yard"],
+      "summary": "Late or partial trucks usually come from missing capacity planning per trailer type and from appointments that are not managed in the system.",
+      "look_at": [
+        "Shipment planning with capacity per trailer type",
+        "Dock appointment scheduling, including recurring appointments for regular carriers",
+        "Load closure and shipping confirmation steps that are still manual"
+      ],
+      "watch_out": [
+        "Appointment scheduling only helps if carriers actually use it: plan the onboarding",
+        "Capacity rules need reliable item weights and volumes"
+      ],
+      "next_step": "Review a month of late departures by carrier and set up recurring appointments for the top carriers."
+    },
+    {
+      "id": "inventory",
+      "title": "Inventory accuracy",
+      "keywords": ["inventory", "cycle count", "count", "accuracy", "adjust", "stock"],
+      "summary": "Inventory accuracy improves most with counts triggered by events (short picks, empty locations) rather than only calendar-based counting.",
+      "look_at": [
+        "Cycle counts triggered by short picks and by locations found empty",
+        "Count programmes by ABC class",
+        "Adjustment reason codes and their follow-up"
+      ],
+      "watch_out": [
+        "Event-driven counts add tasks: check counter capacity",
+        "Adjustments without reasons hide process problems"
+      ],
+      "next_step": "Enable short-pick-triggered counts and review adjustments by reason code after two weeks."
+    },
+    {
+      "id": "integration",
+      "title": "Integration",
+      "keywords": ["integration", "interface", "message", "erp", "sap", "host", "item master", "failure", "error", "api"],
+      "summary": "Integration issues (lost or failed messages, late item master updates) are best handled with monitoring and retries before considering development.",
+      "look_at": [
+        "Monitoring and alerting on failed inbound and outbound messages",
+        "Retry policies and error queues with an owner on each side",
+        "Timing of item master updates versus inbound receipts"
+      ],
+      "watch_out": [
+        "Fixes often need changes on the ERP side too: involve the client's integration team",
+        "Test with production-like volumes in a lower environment"
+      ],
+      "next_step": "List the failing message types over a month, agree owners, then set up alerts and retries."
+    },
+    {
+      "id": "labor",
+      "title": "Labour and tasks",
+      "keywords": ["labor", "labour", "productivity", "task", "interleav", "reach truck", "dashboard", "supervisor", "fte", "kpi", "report"],
+      "summary": "Supervisors need visibility of work in progress, and equipment should do useful work in both directions: task interleaving and simple dashboards are the usual first steps.",
+      "look_at": [
+        "Task interleaving (putaway and replenishment on the same trip) for reach trucks",
+        "Dashboards for backlog per task type and productivity per hour",
+        "Engineered or reference standards to compare productivity"
+      ],
+      "watch_out": [
+        "Interleaving changes task assignment logic: brief the operators",
+        "Dashboards need agreed KPI definitions before they are built"
+      ],
+      "next_step": "Agree the five KPIs supervisors need, build the dashboard, then pilot interleaving on one shift."
+    }
+  ],
+  "generic": {
+    "title": "General guidance",
+    "summary": "No specific topic was recognised in the question, so this is the general approach for a PAR finding.",
+    "look_at": [
+      "Whether standard configuration already covers the need before considering extensions",
+      "Data quality behind the process (items, locations, ASNs)",
+      "The KPI that will show the gain, measured before and after"
+    ],
+    "watch_out": [
+      "Changes that are critical for productivity need validation on the floor at go-live"
+    ],
+    "next_step": "Clarify the expected behaviour with the client's process owner, then test the change in a lower environment."
+  }
+}

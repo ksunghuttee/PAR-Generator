@@ -61,7 +61,10 @@ KEYS = ["id", "activity", "name", "issue", "status", "solution", "solution_type"
 # The local researcher MCP server: its name in the Claude app ("host:" + name, with characters
 # outside A-Z a-z 0-9 _ - replaced by _), the tool to call, and the argument that takes the question.
 # Publish the preview with capabilities {"mcp": {"servers": [{"server": ..., "tools": [tool]}]}} to match.
-RESEARCHER = {"server": "host:researcher", "tool": "research", "arg": "question"}
+# Until it is connected, the preview uses the DUMMY WM expert (par_generator/wm_expert.py), answered
+# in the browser from the same knowledge base. To connect the real one, replace this with e.g.
+# {"server": "host:researcher", "tool": "research", "arg": "question"}.
+RESEARCHER = {"dummy": True, "name": "WM Expert (simulated)"}
 
 
 def build(out: Path) -> None:
@@ -80,7 +83,7 @@ def build(out: Path) -> None:
                         "In this preview the workbook is read in your browser and never uploaded.")
     rows = [dict(zip(KEYS, r)) for r in SAMPLE]
     # Metrics: the dummy provider's figures for the example site, one snapshot per period.
-    from par_generator import drafting, metrics
+    from par_generator import drafting, metrics, wm_expert
     snapshot = {p: metrics.get_metrics("Lyon DC", p).to_json() for p in metrics.PERIODS}
     peers = {p: {v: metrics.get_metrics("Lyon DC", p, v).peers for v in metrics.VERTICALS} for p in metrics.PERIODS}
     local = (
@@ -92,6 +95,7 @@ def build(out: Path) -> None:
         f"window.PAR_LOCAL.instructions = {json.dumps(drafting.INSTRUCTIONS)};\n"
         # The researcher MCP server on the consultant's PC, reached through the Claude desktop app.
         f"window.PAR_LOCAL.researcher = {json.dumps(RESEARCHER)};\n"
+        f"window.PAR_LOCAL.wmExpert = {json.dumps(wm_expert.KB)};\n"
     ).replace("<", "\\u003c")
     css = (STATIC / "app.css").read_text() + """
 .app-navbar-preview { align-self: center; margin-left: 8px; padding: 2px 8px; font-size: 11px; font-weight: 600; color: var(--m-brand-green); border: 1px solid #ffffff38; border-radius: 999px; white-space: nowrap; }

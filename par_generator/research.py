@@ -11,6 +11,10 @@ The server is configured with environment variables:
 - ``PAR_RESEARCHER_ARG`` (optional): the tool argument that takes the question. By
   default the first required string argument of the tool's input schema.
 
+Until a real researcher is set, the DUMMY WM expert (par_generator/wm_expert.py) answers:
+it runs as an in-process MCP server, so the same client code is exercised. Setting
+``PAR_RESEARCHER_MCP=dummy`` asks for it explicitly.
+
 The answer goes into the finding's Researcher column, which is internal: like the
 internal comments, it never appears in the report or the deck.
 """
@@ -29,8 +33,10 @@ class ResearchError(RuntimeError):
     pass
 
 
-def configured() -> bool:
-    return bool(os.environ.get("PAR_RESEARCHER_MCP"))
+def status() -> dict:
+    spec = os.environ.get("PAR_RESEARCHER_MCP", "").strip()
+    dummy = not spec or spec.lower() == "dummy"
+    return {"configured": not dummy, "dummy": dummy, "name": "WM Expert (simulated)" if dummy else "Researcher"}
 
 
 def _target(spec: str):
@@ -101,9 +107,12 @@ async def ask(question: str, server=None) -> dict:
     target = server
     if target is None:
         spec = os.environ.get("PAR_RESEARCHER_MCP", "").strip()
-        if not spec:
-            raise ResearchError("The researcher isn't configured on this server: set PAR_RESEARCHER_MCP.")
-        target = _target(spec)
+        if not spec or spec.lower() == "dummy":
+            from . import wm_expert
+
+            target = wm_expert.server()  # the dummy WM expert, until the real researcher is connected
+        else:
+            target = _target(spec)
     try:
         with anyio.fail_after(TIMEOUT):
             async with Client(target) as client:

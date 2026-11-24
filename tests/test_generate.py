@@ -440,9 +440,11 @@ def test_api_research(monkeypatch):
 
     c = TestClient(app)
     monkeypatch.delenv("PAR_RESEARCHER_MCP", raising=False)
-    assert c.get("/api/research").json() == {"configured": False}
-    r = c.post("/api/research", data={"question": "Why?"})
-    assert r.status_code == 503 and "PAR_RESEARCHER_MCP" in r.json()["detail"]
+    assert c.get("/api/research").json()["dummy"] is True
+    # Not configured: the dummy WM expert answers, through MCP like the real one
+    r = c.post("/api/research", data={"question": "Waves are released late and lines get deselected"})
+    assert r.status_code == 200 and r.json()["tool"] == "ask_wm_expert"
+    assert r.json()["answer"].startswith("WM Expert (simulated) · Wave planning")
     srv = _fake_researcher()
     real = research.ask
     monkeypatch.setattr(research, "ask", lambda q, server=None: real(q, srv))
@@ -461,3 +463,12 @@ def test_researcher_notes_stay_internal():
     assert "SECRET" not in docx_text and "SECRET" not in pptx_text and "SECRET" not in drafting.prompt(d, m)
     out = wb_writer.write_back(workbook(), {"1": {"research": "SECRET researcher answer"}})
     assert next(f for f in findings.load(out).findings if f.id == 1).research == "SECRET researcher answer"
+
+
+def test_dummy_wm_expert_topics():
+    from par_generator import wm_expert
+
+    assert wm_expert.match_topics("Pick faces run empty during waves")[0]["id"] == "replenishment"
+    assert wm_expert.match_topics("Operators walk to a shared printer for every iLPN label")[0]["id"] == "printing"
+    a = wm_expert.answer("Something unrelated")
+    assert "General guidance" in a and "Simulated answer" in a

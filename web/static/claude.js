@@ -411,8 +411,28 @@
     if (typeof r.payload === "string") return r.payload.trim();
     return r.payload !== undefined ? JSON.stringify(r.payload, null, 2) : "";
   }
+  // The DUMMY WM expert: same knowledge base and answer format as par_generator/wm_expert.py.
+  function wmExpertTopics(question, kb, limit = 2) {
+    const q = question.toLowerCase(), esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return kb.topics.map((t, i) => ({ t, i, hits: t.keywords.reduce((n, k) => n + (q.match(new RegExp("\\b" + esc(k), "g")) || []).length * k.split(/\s+/).length, 0) }))
+      .filter((x) => x.hits).sort((a, b) => b.hits - a.hits || a.i - b.i).slice(0, limit).map((x) => x.t);
+  }
+  function wmExpertAnswer(question, kb) {
+    const topics = wmExpertTopics(question, kb);
+    const main = topics[0] || kb.generic, out = [`WM Expert (simulated) · ${main.title}`, "", main.summary, "", "What to look at:"];
+    main.look_at.forEach((x) => out.push(`- ${x}`));
+    out.push("", "Watch out for:"); main.watch_out.forEach((x) => out.push(`- ${x}`));
+    if (topics[1]) out.push("", `Related (${topics[1].title}): ${topics[1].summary}`);
+    out.push("", `Suggested next step: ${main.next_step}`, "", "Simulated answer from the dummy WM expert: check it before using it.");
+    return out.join("\n");
+  }
+
   async function research(question) {
     const cfg = (window.PAR_LOCAL || {}).researcher;
+    if (cfg && cfg.dummy) {
+      await new Promise((r) => setTimeout(r, 1400 + Math.random() * 1200)); // a researcher takes a moment
+      return { answer: wmExpertAnswer(question, window.PAR_LOCAL.wmExpert), tool: "ask_wm_expert" };
+    }
     const mcp = await cap("mcp");
     if (!cfg || !mcp) throw new Error(RESEARCH_ERRORS.not_granted);
     try {
@@ -427,5 +447,5 @@
     }
   }
 
-  window.PARClaude = { available, brief, clean, draft, save, buildDocx, buildPptx, research };
+  window.PARClaude = { available, brief, clean, draft, save, buildDocx, buildPptx, research, wmExpertAnswer };
 })();
