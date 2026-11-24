@@ -41,7 +41,7 @@
   ];
   // With the writing panel open the sheet narrows: hide columns the panel already shows.
   const HIDE_WITH_PANEL = new Set(["solution", "activity", "solution_type", "status"]);
-  const cols = () => (state.panel ? COLS.filter((c) => !HIDE_WITH_PANEL.has(c.key)) : COLS);
+  const cols = () => (state.panel || state.research ? COLS.filter((c) => !HIDE_WITH_PANEL.has(c.key)) : COLS);
   const nav = () => cols().filter((c) => c.key !== "open").map((c) => c.key); // keyboard-navigable columns
   const colOf = (k) => COLS.find((c) => c.key === k);
 
@@ -51,6 +51,7 @@
     filters: { q: "", activity: "", priority: "", chip: "" }, summaryEdited: false,
     overrides: {}, sort: { key: null, dir: 1 },
     panel: null, // id of the finding open in the side panel
+    research: false, researchThread: [], // "Ask researcher" panel (placeholder, not connected)
     undo: [], redo: [],
     active: null, // { id, col }
     editing: null, // { id, col, td, input, original }
@@ -314,6 +315,7 @@
   function setActive(id, col, scroll = true) {
     state.active = { id: String(id), col };
     markActive(scroll);
+    if (state.research) researchContext();
     if (state.panel && String(id) !== state.panel) { // the open panel follows the selected row
       flushText();
       state.panel = String(id);
@@ -615,6 +617,7 @@
   const pendingText = new Map();
 
   function openPanel(id, focusText = true) {
+    if (state.research) closeResearch(false);
     flushText();
     if (state.editing) commitEdit(0, 0);
     state.panel = String(id);
@@ -764,6 +767,89 @@
     if (e.key === "Escape") { e.preventDefault(); closePanel(); }
     else if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); flushText(); stepPanel(e.key === "ArrowDown" ? 1 : -1); }
   });
+
+  // ---- Ask researcher (placeholder: nothing is sent anywhere yet) -------------------------
+  const RESEARCH_SUGGESTIONS = [
+    "What do similar sites do about this?",
+    "Is there a base feature that solves this?",
+    "Which clients have this configured?",
+    "Draft a Manhattan recommendation",
+  ];
+  function openResearch() {
+    if (state.panel) closePanel();
+    state.research = true;
+    $("askResearcher").setAttribute("aria-expanded", "true");
+    $("askResearcher").classList.add("is-on");
+    $("gridView").classList.add("has-panel");
+    renderGrid();
+    renderResearch();
+    $("rqInput").focus();
+  }
+  function closeResearch(focusGrid = true) {
+    state.research = false;
+    $("research").hidden = true;
+    $("askResearcher").setAttribute("aria-expanded", "false");
+    $("askResearcher").classList.remove("is-on");
+    if (!state.panel) $("gridView").classList.remove("has-panel");
+    renderGrid();
+    if (focusGrid) wrap.focus({ preventScroll: true });
+  }
+  function researchSubject() {
+    const f = state.active && byId().get(state.active.id);
+    return f ? `#${f.id} · ${f.name}` : "All findings in this PAR";
+  }
+  function researchContext() {
+    const el = $("rqContext");
+    if (el) el.textContent = researchSubject();
+  }
+  function renderResearch() {
+    const el = $("research");
+    el.innerHTML = `
+      <header class="cp-panel-head">
+        <strong class="cp-research-title">Ask researcher</strong>
+        <span class="cp-badge cp-badge-warning">Not connected yet</span>
+        <button type="button" class="cp-btn cp-btn-ghost cp-icon-btn" id="rqClose" title="Close (Esc)" aria-label="Close researcher" style="margin-left:auto">✕</button>
+      </header>
+      <div class="cp-panel-body cp-research-body">
+        <div class="cp-research-about"><span>About</span><b id="rqContext"></b></div>
+        <p class="cp-source-note">Ask about the selected finding or the whole PAR: similar cases, base features, clients with the same set-up, or a first draft of a recommendation. Select another row to change the subject.</p>
+        <div class="cp-research-suggest">${RESEARCH_SUGGESTIONS.map((q) => `<button type="button" class="cp-chip" data-rq="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+        <div class="cp-research-thread" id="rqThread" aria-live="polite"></div>
+      </div>
+      <form class="cp-research-form" id="rqForm">
+        <textarea class="cp-input" id="rqInput" rows="2" placeholder="Ask a question… (Enter to send, Shift+Enter for a new line)" aria-label="Question for the researcher"></textarea>
+        <button type="submit" class="cp-btn">Send</button>
+      </form>`;
+    el.hidden = false;
+    researchContext();
+    drawThread();
+    $("rqClose").addEventListener("click", () => closeResearch());
+    el.querySelectorAll("[data-rq]").forEach((b) => b.addEventListener("click", () => askResearcher(b.dataset.rq)));
+    $("rqForm").addEventListener("submit", (e) => { e.preventDefault(); askResearcher($("rqInput").value); });
+    $("rqInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askResearcher($("rqInput").value); }
+    });
+  }
+  function drawThread() {
+    const t = $("rqThread");
+    if (!t) return;
+    t.innerHTML = state.researchThread.map((m) => `<div class="cp-msg cp-msg-${m.who}">
+      ${m.who === "you" ? `<div class="cp-msg-about">${esc(m.about)}</div>` : ""}<div class="cp-msg-text">${esc(m.text)}</div></div>`).join("");
+    t.lastElementChild?.scrollIntoView({ block: "nearest" });
+  }
+  function askResearcher(text) {
+    text = String(text || "").trim();
+    if (!text) return;
+    state.researchThread.push({ who: "you", text, about: researchSubject() });
+    $("rqInput").value = "";
+    drawThread();
+    setTimeout(() => { // placeholder reply until the researcher service is connected
+      state.researchThread.push({ who: "bot", text: "The researcher isn't connected yet, so there's no answer for now. Once it is, it will reply here using the findings, the Client Profiler and past PARs." });
+      drawThread();
+    }, 400);
+  }
+  $("askResearcher").addEventListener("click", () => (state.research ? closeResearch() : openResearch()));
+  $("research").addEventListener("keydown", (e) => { if (e.key === "Escape") closeResearch(); });
 
   // ---- updated workbook ------------------------------------------------------------
   async function downloadWorkbook() {

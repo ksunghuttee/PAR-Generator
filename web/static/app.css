@@ -482,6 +482,26 @@ html:not(.theme-light) .gl-view .cp-mode-btn.active { color: #06201f; }
 .cmp-worse { color: var(--danger-text); background: var(--danger-bg); }
 .cmp-same { color: var(--badge-neutral-text); background: var(--badge-neutral-bg); }
 
+/* ---- ask researcher (placeholder) ------------------------------------------------ */
+/* progress + researcher always together at the right end of the toolbar */
+.cp-sheet-toolbar-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.cp-sheet-toolbar-right .cp-progress { margin-left: 0; }
+.cp-research-btn.is-on { color: var(--btn-text); background: var(--app-accent); }
+html:not(.theme-light) .cp-research-btn.is-on { color: #06201f; }
+.cp-research-title { font: 600 14px var(--m-font-display); }
+.cp-research-body { flex: 1; }
+.cp-research-about { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; font-size: 12px; background: var(--card-bg); border: 1px solid var(--input-border); border-radius: 4px; }
+.cp-research-about span { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-color); }
+.cp-research-suggest { display: flex; flex-wrap: wrap; gap: 6px; }
+.cp-research-thread { display: flex; flex-direction: column; gap: 8px; }
+.cp-msg { max-width: 92%; padding: 8px 10px; font-size: 13px; line-height: 1.45; border-radius: 8px; }
+.cp-msg-text { white-space: pre-wrap; }
+.cp-msg-you { align-self: flex-end; color: var(--btn-text); background: var(--btn-bg); border-bottom-right-radius: 2px; }
+.cp-msg-bot { align-self: flex-start; color: var(--text); background: var(--card-bg); border: 1px solid var(--input-border); border-bottom-left-radius: 2px; }
+.cp-msg-about { margin-bottom: 3px; font-size: 10px; opacity: .75; }
+.cp-research-form { display: flex; gap: 8px; align-items: flex-end; padding: 10px; border-top: 1px solid var(--input-border); }
+.cp-research-form .cp-input { flex: 1; resize: none; font-size: 13px; }
+
 /* ---- overview page -------------------------------------------------------- */
 .cp-overview { flex: 1; min-height: 0; overflow: auto; padding: 16px 24px 24px; }
 .cp-overview-body { max-width: 1400px; }
