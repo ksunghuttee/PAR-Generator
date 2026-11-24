@@ -284,3 +284,98 @@ def test_metrics_peer_comparison():
     allc = c.get("/api/metrics", params={"site": "Lyon DC", "vertical": "All customers"}).json()["peers"]
     assert allc["sites"] == allc["corpus_sites"]
     assert c.get("/api/metrics", params={"vertical": "Nonsense"}).json()["peers"]["vertical"] == "Retail"
+
+
+# ---- Claude drafting (the Anthropic client is mocked: no API calls in tests) ----------
+class _FakeStream:
+    def __init__(self, message):
+        self.message = message
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get_final_message(self):
+        return self.message
+
+
+class _FakeClient:
+    def __init__(self, text, stop_reason="end_turn"):
+        from types import SimpleNamespace as NS
+
+        self.calls = []
+        msg = NS(stop_reason=stop_reason, model="claude-test", content=[NS(type="text", text=text)])
+        outer = self
+
+        class Messages:
+            def stream(self, **kw):
+                outer.calls.append(kw)
+                return _FakeStream(msg)
+
+        self.beta = NS(messages=Messages())
+
+
+def test_draft_brief_is_client_safe():
+    from par_generator import drafting
+
+    d = findings.load(workbook())
+    b = drafting.brief(d, content.ReportMeta(client="Acme", site="DC1"))
+    text = json.dumps(b)
+    for internal in ("note a", "note b", "Reproduce /Test"):  # internal comments and next actions
+        assert internal not in text
+    assert b["to_write"] == ["1", "2", "3", "5"] and b["counts"]["retained_findings"] == 4
+    assert next(f for f in b["findings"] if f["id"] == "1")["client_feedback"] == "looks good"
+
+
+def test_draft_with_mocked_claude():
+    from par_generator import drafting
+
+    d = findings.load(workbook())
+    reply = {"executive_summary": ["A **PAR** was run.", " "], "conclusion": "Start with quick wins.",
+             "recommendations": [{"id": "1", "text": "Do X."}, {"id": "4", "text": "discarded"}, {"id": "99", "text": "?"}]}
+    fake = _FakeClient(json.dumps(reply))
+    out = drafting.draft(d, content.ReportMeta(client="Acme", site="DC1"), client=fake)
+    assert out == {"executive_summary": ["A **PAR** was run."], "conclusion": "Start with quick wins.",
+                   "recommendations": {"1": "Do X."}, "model": "claude-test"}
+    kw = fake.calls[0]
+    assert kw["model"] == drafting.MODEL and kw["output_config"]["format"]["type"] == "json_schema"
+    assert "note a" not in kw["messages"][0]["content"]
+    with pytest.raises(drafting.DraftError):
+        drafting.draft(d, content.ReportMeta(), client=_FakeClient("{}", stop_reason="refusal"))
+    with pytest.raises(drafting.DraftError):
+        drafting.draft(d, content.ReportMeta(), client=_FakeClient("not json"))
+
+
+def test_api_draft(monkeypatch):
+    from par_generator import drafting
+
+    c = TestClient(app)
+    seen = {}
+
+    def fake_draft(data, meta, redraft_existing=False):
+        seen.update(client=meta.client, redraft=redraft_existing, n=len(data.retained))
+        return {"executive_summary": ["x"], "conclusion": "y", "recommendations": {"1": "z"}, "model": "m"}
+
+    monkeypatch.setattr(drafting, "draft", fake_draft)
+    r = c.post("/api/draft", files={"file": ("w.xlsx", workbook())}, data={"client": "Acme", "redraft_existing": "true"})
+    assert r.status_code == 200 and r.json()["recommendations"] == {"1": "z"}
+    assert seen == {"client": "Acme", "redraft": True, "n": 4}
+
+    def failing(*a, **k):
+        raise drafting.DraftError("Claude isn't configured on this server: set ANTHROPIC_API_KEY.")
+
+    monkeypatch.setattr(drafting, "draft", failing)
+    r = c.post("/api/draft", files={"file": ("w.xlsx", workbook())})
+    assert r.status_code == 503 and "ANTHROPIC_API_KEY" in r.json()["detail"]
+
+
+def test_conclusion_in_report():
+    c = TestClient(app)
+    r = c.post("/api/generate", files={"file": ("w.xlsx", workbook())},
+               data={"kind": "docx", "client": "Acme", "site": "DC1", "conclusion": "First line.\nSecond line."})
+    assert r.status_code == 200
+    text = [p.text for p in Document(io.BytesIO(r.content)).paragraphs]
+    i = text.index("Conclusion")
+    assert "First line." in text[i:i + 4] and "Second line." in text[i:i + 5]

@@ -197,7 +197,11 @@ class _Writer:
 
     def conclusion(self):
         self.h("Conclusion", 1, new_page=True)
-        self.placeholder("Write the overall conclusion: key messages, main levers and proposed next steps.")
+        paras = [p.strip() for p in (self.meta.conclusion or "").split("\n") if p.strip()]
+        if not paras:
+            self.placeholder("Write the overall conclusion: key messages, main levers and proposed next steps.")
+        for text in paras:
+            self.p(text).paragraph_format.space_after = Pt(6)
 
     def summary_of_recommendations(self):
         d, s = self.data, self.data.summary()

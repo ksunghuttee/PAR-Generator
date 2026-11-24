@@ -32,6 +32,7 @@ class ReportMeta:
     date: str = field(default_factory=lambda: date.today().strftime("%d/%m/%Y"))
     visit_period: str = ""
     executive_summary: list[str] = field(default_factory=list)
+    conclusion: str = ""
     include_discarded: bool = True
 
     @property

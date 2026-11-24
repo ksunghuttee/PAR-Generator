@@ -15,10 +15,11 @@ import zipfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from par_generator import content, findings, metrics, slides, word, workbook
+from par_generator import content, drafting, findings, metrics, slides, word, workbook
 
 MAX_UPLOAD = 25 * 1024 * 1024
 STATIC = Path(__file__).parent / "static"
@@ -86,6 +87,29 @@ def get_metrics(site: str = "Site", period: str | None = None, vertical: str | N
         raise HTTPException(503, f"Metrics are not available yet: {e}") from e
 
 
+@app.post("/api/draft")
+async def draft(
+    file: UploadFile = File(...),
+    client: str = Form("Client"),
+    site: str = Form("Site"),
+    visit_period: str = Form(""),
+    value_threshold: float = Form(10),
+    feasibility_threshold: float = Form(10),
+    top_n: int = Form(15),
+    overrides: str = Form(""),
+    redraft_existing: bool = Form(False),
+):
+    """Claude drafts the executive summary, the conclusion and the missing recommendations.
+    Nothing is saved: the page puts the drafts into its editable fields for review."""
+    data = _load(await _read(file), value_threshold, feasibility_threshold, top_n, overrides)
+    meta = content.ReportMeta(client=client.strip() or "Client", site=site.strip() or "Site", visit_period=visit_period.strip())
+    try:
+        result = await run_in_threadpool(drafting.draft, data, meta, redraft_existing)
+    except drafting.DraftError as e:
+        raise HTTPException(503, str(e)) from e
+    return JSONResponse(result)
+
+
 @app.post("/api/analyze")
 async def analyze(
     file: UploadFile = File(...),
@@ -135,6 +159,7 @@ async def generate(
     date: str = Form(""),
     visit_period: str = Form(""),
     executive_summary: str = Form(""),
+    conclusion: str = Form(""),
     include_discarded: bool = Form(True),
     value_threshold: float = Form(10),
     feasibility_threshold: float = Form(10),
@@ -155,6 +180,7 @@ async def generate(
         meta.date = date.strip()
     lines = [l.strip() for l in executive_summary.splitlines() if l.strip()]
     meta.executive_summary = lines or content.draft_executive_summary(data, meta)
+    meta.conclusion = conclusion.strip()
 
     base = _safe(f"PAR {meta.year} - {meta.client} {meta.site}")
     if kind == "docx":

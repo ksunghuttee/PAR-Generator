@@ -201,11 +201,27 @@
                   Download both
                 </button>
               </header>
+              <div class="cp-ai" id="aiBar">
+                <div class="cp-ai-text">
+                  <strong>✦ Write it with Claude</strong>
+                  <span id="aiNote">Claude drafts the executive summary, the conclusion and a Manhattan recommendation for every finding that has none. Drafts land in the fields below, marked “Drafted”, for you to review. Internal comments are never sent.</span>
+                </div>
+                <div class="cp-ai-actions">
+                  <button type="button" class="cp-btn cp-btn-ghost" id="aiDraft">Draft only</button>
+                  <button type="button" class="cp-btn cp-btn-ai" id="aiGenerate">✦ Generate with Claude</button>
+                </div>
+                <label class="cp-check cp-ai-opt"><input type="checkbox" id="aiRedraft"> Also redraft recommendations that are already written</label>
+              </div>
               <p class="cp-status" id="status" aria-live="polite" hidden></p>
               <div>
                 <h3 class="cp-section-title cp-title-row">Executive summary <button type="button" class="cp-link" id="resetSummary">Reset to draft</button></h3>
                 <textarea class="cp-input cp-textarea" id="summary" rows="9" form="form" aria-label="Executive summary"></textarea>
                 <p class="cp-source-note">One point per line. Wrap words in **double asterisks** to highlight them. Used in the report and on the deck's Executive Summary slide.</p>
+              </div>
+              <div>
+                <h3 class="cp-section-title">Conclusion</h3>
+                <textarea class="cp-input cp-textarea" id="conclusion" rows="5" form="form" aria-label="Conclusion" placeholder="Key messages, main levers and proposed next steps. Left empty, the report keeps a placeholder."></textarea>
+                <p class="cp-source-note">One paragraph per line. Used for the report's Conclusion.</p>
               </div>
               <div class="cp-outputs" id="outputs"></div>
             </div>
@@ -215,6 +231,7 @@
     </main>
   </div>
   <script src="static/charts.js"></script>
+  <script src="static/claude.js"></script>
   <script src="static/app.js"></script>
   <script src="static/metrics.js"></script>
 </body>

@@ -583,3 +583,17 @@ html:not(.is-embed) .cp-split { overflow: hidden; }
   .cp-field-row { grid-template-columns: 1fr; }
   .cp-prio-controls .cp-field { width: calc(50% - 5px); }
 }
+
+/* ---- Claude drafting ---------------------------------------------------------- */
+.cp-ai { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center; padding: 12px 14px; background: color-mix(in oklab, var(--app-accent) 8%, var(--card-bg)); border: 1px solid color-mix(in oklab, var(--app-accent) 35%, var(--input-border)); border-radius: 6px; }
+.cp-ai-text { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted-color); min-width: 0; }
+.cp-ai-text strong { font-size: 13px; color: var(--text); }
+.cp-ai-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.cp-ai-opt { grid-column: 1 / -1; font-size: 12px; }
+.cp-btn-ai { background: var(--app-accent); color: #062a1a; font-weight: 600; }
+html.theme-light .cp-btn-ai { color: #fff; }
+.cp-btn-ai:hover { filter: brightness(1.06); }
+.cp-btn:disabled { opacity: .55; cursor: progress; }
+.cp-reco-ai { color: var(--app-accent); font-weight: 600; }
+.cp-drafted { display: inline-block; margin-left: 6px; padding: 0 6px; font-size: 10px; font-weight: 600; color: var(--app-accent); border: 1px solid currentColor; border-radius: 8px; vertical-align: 1px; }
+@media (max-width: 640px) { .cp-ai { grid-template-columns: 1fr; } .cp-ai-actions { justify-content: flex-start; } }

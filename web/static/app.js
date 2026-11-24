@@ -55,6 +55,8 @@
     active: null, // { id, col }
     editing: null, // { id, col, td, input, original }
     pendingRender: false,
+    drafted: {}, // id -> recommendation text Claude drafted (shown as "Drafted" until someone changes it)
+    drafting: null, // AbortController while Claude drafts
   };
 
   // ---- embedding: report height to the host frame ---------------------------
@@ -81,6 +83,26 @@
       else localStorage.removeItem(editKey());
     } catch (e) { /* storage unavailable: edits still apply for this visit */ }
   }
+
+  // Narrative kept per workbook in this browser: Claude's drafted recommendations, the conclusion and an edited summary.
+  const narrKey = () => editKey().replace(/^par-edits:/, "par-narrative:");
+  function loadNarrative() {
+    let n = {};
+    try { n = JSON.parse(localStorage.getItem(narrKey()) || "{}") || {}; } catch (e) { /* storage unavailable */ }
+    state.drafted = n.drafted || {};
+    $("conclusion").value = n.conclusion || "";
+    state.summaryEdited = typeof n.summary === "string";
+    if (state.summaryEdited) $("summary").value = n.summary;
+  }
+  function saveNarrative() {
+    const n = { drafted: state.drafted, conclusion: $("conclusion").value };
+    if (state.summaryEdited) n.summary = $("summary").value;
+    try {
+      if (Object.keys(n.drafted).length || n.conclusion || n.summary !== undefined) localStorage.setItem(narrKey(), JSON.stringify(n));
+      else localStorage.removeItem(narrKey());
+    } catch (e) { /* storage unavailable */ }
+  }
+  const isDrafted = (f) => !!f.recommendation && state.drafted[String(f.id)] === f.recommendation;
 
   // ---- data -------------------------------------------------------------------
   function meta() {
@@ -112,7 +134,7 @@
       state.editing = null; state.active = null; state.panel = null; state.undo = []; state.redo = [];
       state.data = await analyze();
       state.mode = "overview"; // a newly uploaded workbook opens on its overview
-      state.summaryEdited = false;
+      loadNarrative();
       state.filters = { q: "", activity: "", priority: "", chip: "" };
       onData(true);
     } catch (err) {
@@ -243,6 +265,7 @@
       }
       case "reco": {
         if (f.discarded) return `<td ${attrs}></td>`;
+        if (isDrafted(f)) return `<td ${attrs} title="Drafted by Claude, to review: ${esc(f.recommendation.slice(0, 300))}"><span class="cp-reco cp-reco-ai">✦ Drafted</span></td>`;
         return f.recommendation
           ? `<td ${attrs} title="${esc(f.recommendation.slice(0, 300))}"><span class="cp-reco cp-reco-done">✓ Written</span></td>`
           : `<td ${attrs} title="No recommendation yet"><span class="cp-reco">To write</span></td>`;
@@ -689,7 +712,7 @@
           <label class="cp-field"><span>Gain</span>${lvl("gain")}</label>
         </div>
         ${TEXTS.map((t) => `<label class="cp-panel-field${t.internal ? " is-internal" : ""}">
-          <span class="cp-panel-label">${t.label}<em>${t.internal ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' : ""}${t.where}</em></span>
+          <span class="cp-panel-label">${t.label}${t.key === "recommendation" && isDrafted(f) ? '<span class="cp-drafted" title="Drafted by Claude. Review it; it stops being marked once you change it.">✦ Drafted</span>' : ""}<em>${t.internal ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' : ""}${t.where}</em></span>
           <textarea class="cp-input cp-textarea-sm" data-field="${t.key}" rows="${t.rows}" placeholder="${t.key === "recommendation" ? "What Manhattan recommends, and why" : ""}">${esc(f[t.key] || "")}</textarea>
         </label>`).join("")}
         <label class="cp-panel-field">
@@ -928,7 +951,7 @@
       <div class="cp-output"><div class="cp-output-head"><h3 class="cp-output-title">Word report</h3><span class="cp-badge cp-badge-neutral">.docx</span></div>
         <ul><li>Cover, contents and executive summary</li><li>Summary of recommendations with charts and the priority matrix</li>
           <li>${s.retained} findings across ${s.activities} activities, each with a recap table</li>
-          <li>Yellow placeholders for the site description, conclusion and missing recommendations</li></ul>
+          <li>Yellow placeholders for the site description${$("conclusion").value.trim() ? "" : ", the conclusion"} and missing recommendations</li></ul>
         <button type="button" class="cp-btn" data-kind="docx">Download report</button></div>
       <div class="cp-output"><div class="cp-output-head"><h3 class="cp-output-title">PowerPoint restitution</h3><span class="cp-badge cp-badge-neutral">.pptx · ${14 + n} slides</span></div>
         <ul><li>Title, agenda, introduction and executive summary</li><li>Priority matrix and breakdown charts (editable)</li>
@@ -940,8 +963,9 @@
         <button type="button" class="cp-btn" data-wb>Download workbook</button></div>`;
   }
 
-  $("summary").addEventListener("input", () => { state.summaryEdited = true; });
-  $("resetSummary").addEventListener("click", () => { state.summaryEdited = false; reanalyze(0); });
+  $("summary").addEventListener("input", () => { state.summaryEdited = true; saveNarrative(); });
+  $("conclusion").addEventListener("input", saveNarrative);
+  $("resetSummary").addEventListener("click", () => { state.summaryEdited = false; saveNarrative(); reanalyze(0); });
   ["client", "site", "visit"].forEach((id) => $(id).addEventListener("input", () => { if (!state.summaryEdited) reanalyze(); }));
   $("date").value = new Date().toLocaleDateString("en-GB");
 
@@ -961,13 +985,14 @@
     const status = $("status");
     status.hidden = false;
     status.classList.remove("is-error");
+    status.textContent = kind === "zip" ? "Building the report and the deck…" : "Building…";
+    const buttons = document.querySelectorAll("button[data-kind], #aiGenerate, #aiDraft");
+    buttons.forEach((b) => { b.disabled = true; });
     if (LOCAL) {
-      status.textContent = "In this preview nothing is generated. The full app builds the Word report and PowerPoint deck from these settings and downloads them.";
+      try { await buildLocal(kind); } catch (err) { status.classList.add("is-error"); status.textContent = err.message; }
+      finally { buttons.forEach((b) => { b.disabled = false; }); }
       return;
     }
-    status.textContent = kind === "zip" ? "Building the report and the deck…" : "Building…";
-    const buttons = document.querySelectorAll("button[data-kind]");
-    buttons.forEach((b) => { b.disabled = true; });
     const fd = new FormData();
     fd.append("file", state.file);
     fd.append("kind", kind);
@@ -975,6 +1000,7 @@
     fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period);
     fd.append("author", $("author").value); fd.append("date", $("date").value);
     fd.append("executive_summary", $("summary").value); fd.append("include_discarded", $("discarded").checked);
+    fd.append("conclusion", $("conclusion").value);
     for (const [k, v] of Object.entries(state.settings)) fd.append(k, v);
     fd.append("overrides", JSON.stringify(state.overrides));
     try {
@@ -993,6 +1019,97 @@
       buttons.forEach((b) => { b.disabled = false; });
     }
   }
+
+  // Preview: build the documents in the browser and hand them over through the page's downloads.
+  async function buildLocal(kind) {
+    const status = $("status");
+    const doc = {
+      meta: { ...meta(), author: $("author").value.trim(), date: $("date").value.trim(), include_discarded: $("discarded").checked },
+      summary: $("summary").value.split("\n").map((x) => x.trim()).filter(Boolean),
+      conclusion: $("conclusion").value,
+    };
+    const builds = kind === "zip" ? ["docx", "pptx"] : [kind];
+    const saved = [];
+    for (const k of builds) {
+      status.textContent = k === "docx" ? "Building the Word report…" : "Building the PowerPoint deck…";
+      const out = await (k === "docx" ? PARClaude.buildDocx(state.data, doc) : PARClaude.buildPptx(state.data, doc));
+      status.textContent = `Saving ${out.filename}…`;
+      const r = await PARClaude.save(out.filename, out.blob);
+      if (r === "declined") { status.textContent = saved.length ? `Saved ${saved.join(" and ")}. ${out.filename} wasn't saved.` : "Nothing was saved."; return; }
+      saved.push(out.filename);
+    }
+    status.textContent = `Saved ${saved.join(" and ")}. In the full app these fill the branded Manhattan templates.`;
+  }
+
+  // ---- Claude: draft the narrative, then (optionally) build both documents ----------
+  async function draftWithClaude(thenGenerate) {
+    if (!state.data) return;
+    if (state.drafting) { state.drafting.abort(); return; } // the button turns into "Stop" while drafting
+    if (!$("client").value.trim() || !$("site").value.trim()) { $("form").reportValidity(); return; }
+    flushText();
+    const status = $("status"), btn = thenGenerate ? $("aiGenerate") : $("aiDraft"), other = thenGenerate ? $("aiDraft") : $("aiGenerate");
+    const label = btn.textContent;
+    status.hidden = false; status.classList.remove("is-error");
+    status.textContent = "Claude is reading the review…";
+    const ctrl = state.drafting = new AbortController();
+    btn.textContent = "Stop"; other.disabled = true;
+    document.querySelectorAll("button[data-kind]").forEach((b) => { b.disabled = true; });
+    const redraft = $("aiRedraft").checked;
+    try {
+      let result;
+      if (LOCAL) {
+        result = await PARClaude.draft(state.data, meta(), {
+          redraftExisting: redraft, signal: ctrl.signal,
+          onText: (text) => { status.textContent = `Claude is writing… ${Math.round(text.length / 100) / 10}k characters`; },
+        });
+      } else {
+        const fd = new FormData();
+        fd.append("file", state.file);
+        const m = meta();
+        fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period);
+        for (const [k, v] of Object.entries(state.settings)) fd.append(k, v);
+        fd.append("overrides", JSON.stringify(state.overrides));
+        fd.append("redraft_existing", redraft);
+        status.textContent = "Claude is writing the summary, the conclusion and the recommendations… (about a minute)";
+        const res = await fetch("api/draft", { method: "POST", body: fd, signal: ctrl.signal });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || `Claude couldn't draft this review (${res.status}).`);
+        result = body;
+      }
+      applyDraft(result);
+      const n = Object.keys(result.recommendations).length;
+      status.textContent = `Claude drafted the summary, the conclusion and ${n} recommendation${n === 1 ? "" : "s"} (marked “✦ Drafted” in the sheet). Review them before sending anything to the client.`;
+      if (thenGenerate) {
+        state.drafting = null; btn.textContent = label;
+        await generate("zip");
+      }
+    } catch (err) {
+      status.classList.add("is-error");
+      status.textContent = err.name === "AbortError" || err.code === "aborted" ? "Drafting stopped. Nothing was changed." : err.message;
+    } finally {
+      state.drafting = null; btn.textContent = label; other.disabled = false;
+      document.querySelectorAll("button[data-kind]").forEach((b) => { b.disabled = false; });
+    }
+  }
+
+  function applyDraft(result) {
+    if (result.executive_summary && result.executive_summary.length) { $("summary").value = result.executive_summary.join("\n"); state.summaryEdited = true; }
+    if (result.conclusion) $("conclusion").value = result.conclusion;
+    const recs = Object.entries(result.recommendations || {});
+    if (recs.length) {
+      snapshot(); // one Ctrl/Cmd+Z takes all drafted recommendations back out
+      for (const [id, text] of recs) {
+        state.overrides[id] = { ...(state.overrides[id] || {}), recommendation: text };
+        state.drafted[id] = text;
+      }
+      saveEdits();
+      if (state.panel) state.panelReload = true;
+    }
+    saveNarrative();
+    if (recs.length) reanalyze(0); else renderExport();
+  }
+  $("aiGenerate").addEventListener("click", () => draftWithClaude(true));
+  $("aiDraft").addEventListener("click", () => draftWithClaude(false));
 
   // ---- mode switch, upload, errors ------------------------------------------------
   function setMode(mode) {
@@ -1035,6 +1152,7 @@
     $("author").value = LOCAL.author || "";
     $("visit").value = LOCAL.visit || "";
     state.overrides = loadEdits();
+    loadNarrative();
     state.data = PAREngine.analyze(state.ds, state.settings, meta(), state.overrides);
     onData(true);
   }

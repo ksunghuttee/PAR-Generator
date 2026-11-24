@@ -20,7 +20,11 @@ Open http://127.0.0.1:8000 and drop the findings workbook. Then:
 - **✎ or Enter on a row** opens a side panel for the texts: issue, solution, Manhattan recommendation, client feedback, theme and **internal comments**. Internal comments are never written into the report or the deck. Text is saved as you type, and Ctrl/Cmd+Z undoes.
 - **Overview** shows the checks, the priority matrix, the top items and the breakdowns.
 - **Metrics** shows the operational KPIs (inventory accuracy, order cycle time, dock to stock, space utilisation, on-time shipping, productivity, picking exceptions, appointment accuracy, receiving/shipping completeness, inventory quality) against the PAR targets, plus the analyses behind them: order-line backlog per order type, waves and deselection, task volume per hour, iLPN putaway backlog, and space per allocation zone. Figures come from `GET /api/metrics`. Until the warehouse database is connected they are **dummy** figures, and the page labels them as such. To connect the database, implement `DatabaseProvider` in `par_generator/metrics.py` and set `PAR_METRICS_PROVIDER=database` and `PAR_METRICS_DSN`.
-- **Report & export** builds the Word report and the deck. **Download workbook** returns your Excel file with every edit written back into it (Recommendation and Theme columns are added if missing). Nothing else in the file changes.
+- **Report & export** builds the Word report and the deck. **✦ Generate with Claude** first has Claude draft the executive summary, the conclusion and a Manhattan recommendation for every finding that has none, then builds both documents; **Draft only** stops after the drafts so you can review them first. Drafted recommendations are marked **✦ Drafted** in the sheet and the side panel until someone changes them, and one Ctrl/Cmd+Z takes them all back out. Claude only gets client-safe fields: internal comments and next actions are never sent (see `par_generator/drafting.py`). **Download workbook** returns your Excel file with every edit written back into it (Recommendation and Theme columns are added if missing). Nothing else in the file changes.
+
+Drafting calls the Claude API from the server: set `ANTHROPIC_API_KEY` (and optionally `PAR_CLAUDE_MODEL`, default `claude-opus-5-5`). Without a key, the page says Claude isn't configured and everything else works as before.
+
+In the **interactive preview** (`scripts/build_preview.py`, published as a claude.ai artifact) there is no server: Claude drafts through the artifact's `sample` capability with the same instructions, and a simpler Manhattan-styled report and deck are built in the browser (docx and PptxGenJS) and saved through the `downloads` capability. The full app fills the branded templates instead.
 
 Edits are kept per workbook in the browser until you download the updated workbook. The server stores nothing.
 
@@ -72,7 +76,7 @@ The script removes the body content, comments, tracked changes, notes, co-author
 ## Layout
 
 ```
-par_generator/   findings.py (workbook -> data + checks), word.py, slides.py, charts.py, content.py
+par_generator/   findings.py (workbook -> data + checks), word.py, slides.py, charts.py, content.py, drafting.py (Claude)
 web/             FastAPI app + single-page UI (manh.com theme)
 scripts/         make_templates.py
 tests/           end-to-end tests on a synthetic workbook
