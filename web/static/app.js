@@ -32,17 +32,20 @@
     { key: "score", label: "Score", w: 80, num: true, edit: "num" },
     { key: "complexity", label: "Complexity", w: 108, edit: "level" },
     { key: "gain", label: "Gain", w: 84, edit: "level" },
+    { key: "expected_gain", label: "Expected gain", w: 120, edit: "text", ph: "e.g. 0.3 FTE" }, // top-item slide headline
     { key: "quadrant", label: "Priority", w: 104 },
     { key: "rank", label: "Top", w: 50, num: true },
     { key: "reco", label: "Reco.", w: 76 },
     // Shown instead of "reco" when the toolbar's Reco. toggle is on "Full text".
     { key: "recommendation", label: "Manhattan recommendation", w: 380, edit: "text", wrap: true },
+    { key: "gain_details", label: "Gain details", w: 240, edit: "text", ph: "Add…" },
+    { key: "feasibility_note", label: "Feasibility note", w: 200, edit: "text", ph: "Add…" },
     { key: "activity", label: "Activity", w: 140 },
     { key: "solution_type", label: "Solution type", w: 160 },
     { key: "status", label: "Status", w: 140 },
   ];
   // With the writing panel open the sheet narrows: hide columns the panel already shows.
-  const HIDE_WITH_PANEL = new Set(["solution", "activity", "solution_type", "status"]);
+  const HIDE_WITH_PANEL = new Set(["solution", "gain_details", "feasibility_note", "activity", "solution_type", "status"]);
   // Full text needs room: with the panel open (which shows the text anyway) the sheet keeps the status column.
   const fullReco = () => state.recoView === "full" && !state.panel;
   const cols = () => COLS.filter((c) => (fullReco() ? c.key !== "reco" : c.key !== "recommendation") && !(state.panel && HIDE_WITH_PANEL.has(c.key)));
@@ -286,6 +289,10 @@
         if (!f.solution) return `<td ${attrs}>${f.discarded ? "" : '<span class="cp-cell-empty">Add a solution…</span>'}</td>`;
         const one = f.solution.replace(/\s*\n\s*/g, " · ");
         return `<td ${attrs} title="${esc(f.solution.slice(0, 600))}">${esc(one)}</td>`;
+      }
+      case "expected_gain": case "gain_details": case "feasibility_note": {
+        if (!f[c.key]) return `<td ${attrs}>${f.discarded || !f.rank ? "" : `<span class="cp-cell-empty">${esc(c.ph)}</span>`}</td>`;
+        return `<td ${attrs} title="${esc(f[c.key].slice(0, 600))}">${esc(f[c.key].replace(/\s*\n\s*/g, " · "))}</td>`;
       }
       case "activity": return `<td ${attrs} title="${esc(f.activity_raw)}">${esc(f.activity)}</td>`;
       case "quadrant": {
