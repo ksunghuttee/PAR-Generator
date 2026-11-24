@@ -38,6 +38,7 @@
     { key: "reco", label: "Reco.", w: 76 },
     // Shown instead of "reco" when the toolbar's Reco. toggle is on "Full text".
     { key: "recommendation", label: "Manhattan recommendation", w: 380, edit: "text", wrap: true },
+    { key: "research", label: "Researcher", w: 280, edit: "text", internal: true }, // MCP answers: internal
     { key: "gain_details", label: "Gain details", w: 240, edit: "text", ph: "Add…" },
     { key: "feasibility_note", label: "Feasibility note", w: 200, edit: "text", ph: "Add…" },
     { key: "activity", label: "Activity", w: 140 },
@@ -45,7 +46,7 @@
     { key: "status", label: "Status", w: 140 },
   ];
   // With the writing panel open the sheet narrows: hide columns the panel already shows.
-  const HIDE_WITH_PANEL = new Set(["solution", "gain_details", "feasibility_note", "activity", "solution_type", "status"]);
+  const HIDE_WITH_PANEL = new Set(["solution", "research", "gain_details", "feasibility_note", "activity", "solution_type", "status"]);
   // Full text needs room: with the panel open (which shows the text anyway) the sheet keeps the status column.
   const fullReco = () => state.recoView === "full" && !state.panel;
   const cols = () => COLS.filter((c) => (fullReco() ? c.key !== "reco" : c.key !== "recommendation") && !(state.panel && HIDE_WITH_PANEL.has(c.key)));
@@ -64,6 +65,8 @@
     pendingRender: false,
     drafted: {}, // id -> recommendation text Claude drafted (shown as "Drafted" until someone changes it)
     drafting: null, // AbortController while Claude drafts
+    researching: new Map(), // id -> question, while the researcher works on it
+    askDrafts: {}, // id -> question being edited in the pop-up
     recoView: (() => { try { return localStorage.getItem("par-reco-view") === "full" ? "full" : "status"; } catch (e) { return "status"; } })(),
   };
 
@@ -268,7 +271,7 @@
       case "open": {
         const open = state.panel === String(f.id);
         return `<td class="cp-grid-expand"><button type="button" class="cp-expand${open ? " is-open" : ""}" data-open="${esc(f.id)}" aria-label="Open finding ${esc(f.id)} to write its texts" title="Open to write the solution, recommendation and comments" tabindex="-1">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg></button><button type="button" class="cp-expand cp-ask" data-ask="${esc(f.id)}" aria-label="Ask researcher about finding ${esc(f.id)}" title="Ask researcher about this finding" tabindex="-1">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg></button><button type="button" class="cp-expand cp-ask" data-ask="${esc(f.id)}" aria-label="Ask researcher about finding ${esc(f.id)}" title="Ask the researcher about this finding (you can edit the question first)" tabindex="-1">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8z"/></svg></button></td>`;
       }
       case "reco": {
@@ -289,6 +292,11 @@
         if (!f.solution) return `<td ${attrs}>${f.discarded ? "" : '<span class="cp-cell-empty">Add a solution…</span>'}</td>`;
         const one = f.solution.replace(/\s*\n\s*/g, " · ");
         return `<td ${attrs} title="${esc(f.solution.slice(0, 600))}">${esc(one)}</td>`;
+      }
+      case "research": {
+        if (state.researching.has(String(f.id))) return `<td ${attrs.replace('class="', 'class="is-asking ')}><span class="cp-ask-dots" aria-hidden="true"><i></i><i></i><i></i></span> Asking the researcher…</td>`;
+        if (!f.research) return `<td ${attrs}></td>`;
+        return `<td ${attrs} title="${esc(f.research.slice(0, 900))}">${esc(f.research.replace(/\s*\n\s*/g, " · "))}</td>`;
       }
       case "expected_gain": case "gain_details": case "feasibility_note": {
         if (!f[c.key]) return `<td ${attrs}>${f.discarded || !f.rank ? "" : `<span class="cp-cell-empty">${esc(c.ph)}</span>`}</td>`;
@@ -323,7 +331,7 @@
     $("grid").innerHTML = `<colgroup>${cols().map((c) => (c.w ? `<col style="width:${c.w}px">` : "<col>")).join("")}</colgroup>
       <thead><tr>${cols().map((c) => c.key === "open" ? '<th class="cp-grid-expand" aria-label="Open"></th>' :
         `<th role="columnheader" data-sort="${c.key}" aria-sort="${ariaSort(c.key)}" class="${[c.num ? "num" : "", c.edit ? "is-editable" : "", c.sticky ? "is-sticky" : "", c.lastSticky ? "is-sticky-last" : ""].join(" ")}"${c.sticky ? ` style="left:${c.left}px"` : ""}
-          title="${c.edit ? "Editable — " : ""}Sort by ${c.label}">${c.edit ? '<svg class="cp-pen" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>' : ""}${c.label}${sortMark(c.key)}</th>`).join("")}</tr></thead>
+          title="${c.internal ? "Internal: never in the report or deck. " : ""}${c.edit ? "Editable — " : ""}Sort by ${c.label}">${c.edit ? '<svg class="cp-pen" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>' : ""}${c.label}${c.internal ? ' <svg class="cp-lock" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-label="internal"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' : ""}${sortMark(c.key)}</th>`).join("")}</tr></thead>
       <tbody>${rows.map((f) => `<tr data-id="${esc(f.id)}" class="${f.discarded ? "is-discarded" : ""}${f.rank ? " is-top" : ""}${state.panel === String(f.id) ? " is-open" : ""}">${cols().map((c) => cellHTML(f, c)).join("")}</tr>`).join("")
         || `<tr><td colspan="${cols().length}" class="cp-empty">No findings match these filters.</td></tr>`}</tbody>`;
     const edits = state.data.findings.filter((f) => f.edited && f.edited.length).length;
@@ -537,7 +545,7 @@
     const op = e.target.closest("[data-open]");
     if (op) { openPanel(op.dataset.open); return; }
     const ask = e.target.closest("[data-ask]");
-    if (ask) { askResearcher(ask.dataset.ask, ask); return; }
+    if (ask) { askResearcher(ask.dataset.ask); return; }
     const th = e.target.closest("th[data-sort]");
     if (th) {
       // Click cycle: first direction (high→low for numbers and levels, A→Z for text), reverse, workbook order.
@@ -685,6 +693,7 @@
     { key: "expected_gain", label: "Expected gain", where: "Deck · top-item slide, big figure under Expected Value", rows: 1, ph: "e.g. 0.3 FTE" },
     { key: "gain_details", label: "Gain details", where: "Deck · bullets under the expected gain, one per line", rows: 3, ph: "e.g. iLPNs over 70 units: ~30/day\nCumulated waiting time: ~10 min" },
     { key: "feasibility_note", label: "Feasibility note", where: "Deck · bullet under the feasibility gauge", rows: 1, ph: "e.g. Simple parameter activation" },
+    { key: "research", label: "Researcher notes", where: "Answers from the researcher · never in the report or deck", rows: 4, internal: true },
     { key: "comments", label: "Internal comments", where: "Never in the report or deck", rows: 3, internal: true },
   ];
   // Unsaved text, per finding and field, so moving quickly between fields never drops a change.
@@ -842,34 +851,102 @@
     else if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); flushText(); stepPanel(e.key === "ArrowDown" ? 1 : -1); }
   });
 
-  // ---- Ask researcher (row level, placeholder: nothing is sent anywhere yet) ----------------
-  // Shows a brief "Asking researcher…" pop-up beside the button, then fades it out.
-  let askTimer = null;
-  function askResearcher(id, anchor) {
+  // ---- Ask the researcher (MCP) ---------------------------------------------------------------
+  // ✦ on a row opens a pop-up with a question drafted from the finding; the user edits it and
+  // sends it. The answer lands in the Researcher column: internal, never in the report or deck.
+  function defaultQuestion(f) {
+    return [
+      `Finding #${f.id} (${f.activity}): ${f.name}`,
+      f.issue && `Issue: ${f.issue}`,
+      f.solution && `Proposed solution: ${f.solution}`,
+      "",
+      "What does Manhattan Active WM offer to address this (configuration, extensions, known issues or fixes), and how have other sites handled it?",
+    ].filter((x) => x !== null && x !== undefined && x !== false).join("\n");
+  }
+  let askFor = null;
+  function askResearcher(id) {
     const f = byId().get(String(id));
     if (!f) return;
+    if (state.researching.has(String(f.id))) { flash(`The researcher is already working on #${f.id}.`); return; }
+    if (state.editing) commitEdit(0, 0);
     setActive(f.id, state.active?.col || "expected_value", false);
+    askFor = String(f.id);
+    $("askTitle").textContent = `#${f.id} · ${f.name}`;
+    $("askQ").value = state.askDrafts[askFor] ?? defaultQuestion(f);
+    $("askReplace").hidden = !f.research;
+    $("askMsg").textContent = "";
+    const dlg = $("askDialog");
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute("open", "");
+    $("askQ").focus();
+    $("askQ").setSelectionRange($("askQ").value.length, $("askQ").value.length);
+  }
+  function closeAsk() { const d = $("askDialog"); if (d.close) d.close(); else d.removeAttribute("open"); askFor = null; }
+  $("askQ").addEventListener("input", () => { if (askFor) state.askDrafts[askFor] = $("askQ").value; });
+  $("askCancel").addEventListener("click", closeAsk);
+  $("askCancelX").addEventListener("click", closeAsk);
+  $("askReset").addEventListener("click", () => {
+    const f = byId().get(askFor); if (!f) return;
+    delete state.askDrafts[askFor]; $("askQ").value = defaultQuestion(f); $("askQ").focus();
+  });
+  $("askDialog").addEventListener("cancel", () => { askFor = null; });
+  $("askDialog").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendAsk(); } });
+  $("askForm").addEventListener("submit", (e) => { e.preventDefault(); sendAsk(); });
+
+  async function sendAsk() {
+    const id = askFor, question = $("askQ").value.trim();
+    if (!id) return;
+    if (!question) { $("askMsg").textContent = "Write a question first."; $("askQ").focus(); return; }
+    closeAsk();
+    state.researching.set(id, question);
+    renderGrid();
+    showAskPop(id);
+    try {
+      const answer = await askTransport(question);
+      delete state.askDrafts[id];
+      snapshot();
+      const prev = state.overrides[id] || {};
+      state.overrides[id] = { ...prev, research: answer.slice(0, 20000) };
+      saveEdits();
+      if (state.panel === id) state.panelReload = true;
+      flash(`The researcher answered #${id} · Ctrl/Cmd+Z to undo`);
+    } catch (err) {
+      flash(`Researcher, #${id}: ${err.message}`, true);
+    } finally {
+      state.researching.delete(id);
+      reanalyze(0);
+      if (!state.researching.size) hideAskPop();
+    }
+  }
+  async function askTransport(question) {
+    if (LOCAL) return (await PARClaude.research(question)).answer;
+    const fd = new FormData();
+    fd.append("question", question);
+    const res = await fetch("api/research", { method: "POST", body: fd });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.detail || `The researcher couldn't answer (${res.status}).`);
+    return body.answer;
+  }
+  function showAskPop(id) {
     let pop = $("askPop");
     if (!pop) {
       pop = document.createElement("div");
-      pop.id = "askPop";
-      pop.className = "cp-ask-pop";
-      pop.setAttribute("role", "status");
+      pop.id = "askPop"; pop.className = "cp-ask-pop"; pop.setAttribute("role", "status");
       document.body.appendChild(pop);
     }
-    pop.innerHTML = `<span class="cp-ask-dots" aria-hidden="true"><i></i><i></i><i></i></span>Asking researcher… <b>#${esc(f.id)}</b>`;
-    const r = anchor.getBoundingClientRect();
-    pop.style.left = `${Math.min(window.innerWidth - 240, r.right + 8)}px`;
+    const n = state.researching.size;
+    pop.innerHTML = `<span class="cp-ask-dots" aria-hidden="true"><i></i><i></i><i></i></span>Asking the researcher… <b>${n > 1 ? `${n} questions` : `#${esc(id)}`}</b>`;
+    const btn = document.querySelector(`[data-ask="${CSS.escape(String(id))}"]`), r = btn ? btn.getBoundingClientRect() : { right: 80, top: 120, height: 0 };
+    pop.style.left = `${Math.min(window.innerWidth - 260, r.right + 8)}px`;
     pop.style.top = `${Math.max(8, r.top + r.height / 2 - 16)}px`;
-    pop.classList.remove("is-out");
-    pop.classList.add("is-in");
-    anchor.classList.add("is-asking");
+    pop.classList.remove("is-out"); pop.classList.add("is-in");
     clearTimeout(askTimer);
-    askTimer = setTimeout(() => {
-      pop.classList.add("is-out");
-      anchor.classList.remove("is-asking");
-      setTimeout(() => { pop.classList.remove("is-in", "is-out"); }, 300);
-    }, 1800);
+    askTimer = setTimeout(hideAskPop, 2500); // the row keeps its own "Asking…" state until the answer arrives
+  }
+  let askTimer = null;
+  function hideAskPop() {
+    const pop = $("askPop"); if (!pop) return;
+    pop.classList.add("is-out");
+    setTimeout(() => pop.classList.remove("is-in", "is-out"), 300);
   }
 
   // ---- updated workbook ------------------------------------------------------------

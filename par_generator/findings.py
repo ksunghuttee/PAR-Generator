@@ -36,6 +36,8 @@ FINDINGS_COLUMNS = {
     "expected_gain": ["expected gain", "estimated gain", "gain estimate"],
     "gain_details": ["gain details", "gain detail", "expected gain details"],
     "feasibility_note": ["feasibility note", "feasability note", "feasibility comment", "feasability comment"],
+    # internal: the researcher's answers (never in the client documents)
+    "research": ["researcher notes", "researcher", "research notes", "research"],
 }
 REQUIRED = ["id", "activity", "name"]
 
@@ -112,6 +114,7 @@ class Finding:
     expected_gain: str | None = None  # headline of the top-item slide's Expected Value, e.g. "0.3 FTE"
     gain_details: str | None = None  # one bullet per line under it
     feasibility_note: str | None = None  # bullet under the feasibility gauge
+    research: str | None = None  # researcher MCP answers: internal, never in the client documents
     expected_value: float | None = None
     feasibility: float | None = None
     score: float | None = None
@@ -290,7 +293,7 @@ SCORE_FIELDS = ("expected_value", "feasibility", "score", "complexity", "gain")
 # Free text written on the page. `comments` is the workbook's "Other Comments" column:
 # internal notes that never appear in the client documents.
 TEXT_FIELDS = ("issue", "solution", "recommendation", "client_comment", "comments", "theme",
-               "expected_gain", "gain_details", "feasibility_note")
+               "expected_gain", "gain_details", "feasibility_note", "research")
 EDITABLE = SCORE_FIELDS + TEXT_FIELDS
 MAX_TEXT = 20000
 
@@ -380,6 +383,7 @@ def load(source: str | bytes | BinaryIO, settings: Settings | None = None, overr
                 expected_gain=get("expected_gain"),
                 gain_details=get("gain_details"),
                 feasibility_note=get("feasibility_note"),
+                research=get("research"),
             )
         )
 

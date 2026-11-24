@@ -401,3 +401,63 @@ def test_top_item_slide_fields():
     d2 = findings.load(out)
     f2 = next(f for f in d2.findings if f.id == 2)
     assert (f2.expected_gain, f2.feasibility_note) == ("2 h/day", "Needs design")
+
+
+# ---- researcher (MCP): an in-process server stands in for the real one ----------------------
+def _fake_researcher():
+    try:
+        from mcp.server.mcpserver import MCPServer
+    except ImportError:  # older SDK
+        from mcp.server.fastmcp import FastMCP as MCPServer
+    srv = MCPServer("researcher")
+
+    @srv.tool()
+    def lookup_version(build: int) -> str:
+        """Not a research tool."""
+        return str(build)
+
+    @srv.tool()
+    def research(question: str) -> str:
+        """Answer a question."""
+        return f"Use wave templates. (asked: {question})"
+
+    return srv
+
+
+def test_researcher_mcp_client():
+    import anyio
+
+    from par_generator import research
+
+    out = anyio.run(research.ask, "Why are waves slow?", _fake_researcher())
+    assert out == {"answer": "Use wave templates. (asked: Why are waves slow?)", "tool": "research"}
+    with pytest.raises(research.ResearchError):
+        anyio.run(research.ask, "  ", _fake_researcher())
+
+
+def test_api_research(monkeypatch):
+    from par_generator import research
+
+    c = TestClient(app)
+    monkeypatch.delenv("PAR_RESEARCHER_MCP", raising=False)
+    assert c.get("/api/research").json() == {"configured": False}
+    r = c.post("/api/research", data={"question": "Why?"})
+    assert r.status_code == 503 and "PAR_RESEARCHER_MCP" in r.json()["detail"]
+    srv = _fake_researcher()
+    real = research.ask
+    monkeypatch.setattr(research, "ask", lambda q, server=None: real(q, srv))
+    r = c.post("/api/research", data={"question": "Why?"})
+    assert r.status_code == 200 and r.json()["answer"].startswith("Use wave templates.")
+
+
+def test_researcher_notes_stay_internal():
+    d = findings.load(workbook(), overrides={"1": {"research": "SECRET researcher answer", "recommendation": "Do it."}})
+    assert next(f for f in d.findings if f.id == 1).research == "SECRET researcher answer"
+    m = _meta(d)
+    docx_text = "\n".join(p.text for p in Document(io.BytesIO(word.build_report(d, m))).paragraphs)
+    prs = Presentation(io.BytesIO(slides.build_deck(d, m)))
+    pptx_text = "\n".join(sh.text_frame.text for s in prs.slides for sh in s.shapes if sh.has_text_frame)
+    from par_generator import drafting
+    assert "SECRET" not in docx_text and "SECRET" not in pptx_text and "SECRET" not in drafting.prompt(d, m)
+    out = wb_writer.write_back(workbook(), {"1": {"research": "SECRET researcher answer"}})
+    assert next(f for f in findings.load(out).findings if f.id == 1).research == "SECRET researcher answer"

@@ -393,5 +393,39 @@
     return { filename: fileStem(doc) + " - Restitution.pptx", blob: await p.write({ outputType: "blob" }) };
   }
 
-  window.PARClaude = { available, brief, clean, draft, save, buildDocx, buildPptx };
+  // ---- the researcher (an MCP server on the consultant's PC, reached through the Claude app) ----
+  const RESEARCH_ERRORS = {
+    server_not_connected: "The researcher isn't reachable. Open this page in the Claude desktop app on the PC where the researcher MCP runs, and check that it's running.",
+    not_in_manifest: "The researcher isn't allowed for this page. Allow it from the artifact's Permissions menu, then try again.",
+    needs_reauth: "The researcher needs you to sign in again. Reconnect it in the Claude app, then try again.",
+    cancelled: "The question wasn't sent: it was declined in the Claude app.",
+    approval_required: "The Claude app needs your approval to send this. Try again and allow it.",
+    blocked_by_policy: "Your organisation's policy blocks the researcher here.",
+    server_unavailable: "The researcher didn't answer in time. Try again in a moment.",
+    not_granted: "This view can't reach MCP servers. Open the page in the Claude desktop app.",
+    capability_disabled: "This view can't reach MCP servers. Open the page in the Claude desktop app.",
+  };
+  function resultText(r) {
+    const text = (r.content || []).filter((b) => b.type === "text" && b.text && b.text.trim()).map((b) => b.text.trim()).join("\n\n");
+    if (text) return text;
+    if (typeof r.payload === "string") return r.payload.trim();
+    return r.payload !== undefined ? JSON.stringify(r.payload, null, 2) : "";
+  }
+  async function research(question) {
+    const cfg = (window.PAR_LOCAL || {}).researcher;
+    const mcp = await cap("mcp");
+    if (!cfg || !mcp) throw new Error(RESEARCH_ERRORS.not_granted);
+    try {
+      const r = await mcp.callTool(cfg.server, cfg.tool, { [cfg.arg]: question }, { cache: false });
+      const answer = resultText(r);
+      if (!answer) throw Object.assign(new Error("The researcher answered with no text."), { code: "empty" });
+      return { answer, tool: cfg.tool };
+    } catch (e) {
+      if (e && e.code === "empty") throw e;
+      if (e && e.code === "tool_error") throw new Error("The researcher reported an error: " + (e.message || "no details"));
+      throw new Error(RESEARCH_ERRORS[e && e.code] || "The researcher couldn't answer: " + ((e && e.message) || "unknown error") + ".");
+    }
+  }
+
+  window.PARClaude = { available, brief, clean, draft, save, buildDocx, buildPptx, research };
 })();

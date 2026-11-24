@@ -58,6 +58,12 @@ KEYS = ["id", "activity", "name", "issue", "status", "solution", "solution_type"
         "complexity", "gain", "expected_value", "feasibility"]
 
 
+# The local researcher MCP server: its name in the Claude app ("host:" + name, with characters
+# outside A-Z a-z 0-9 _ - replaced by _), the tool to call, and the argument that takes the question.
+# Publish the preview with capabilities {"mcp": {"servers": [{"server": ..., "tools": [tool]}]}} to match.
+RESEARCHER = {"server": "host:researcher", "tool": "research", "arg": "question"}
+
+
 def build(out: Path) -> None:
     html = (STATIC / "index.html").read_text()
     head_script = html[html.index("<script>"):html.index("</script>") + len("</script>")]
@@ -84,6 +90,8 @@ def build(out: Path) -> None:
         f"window.PAR_LOCAL.peers = {json.dumps(peers)};\n"
         # Claude drafts with the same instructions as the server (par_generator/drafting.py).
         f"window.PAR_LOCAL.instructions = {json.dumps(drafting.INSTRUCTIONS)};\n"
+        # The researcher MCP server on the consultant's PC, reached through the Claude desktop app.
+        f"window.PAR_LOCAL.researcher = {json.dumps(RESEARCHER)};\n"
     ).replace("<", "\\u003c")
     css = (STATIC / "app.css").read_text() + """
 .app-navbar-preview { align-self: center; margin-left: 8px; padding: 2px 8px; font-size: 11px; font-weight: 600; color: var(--m-brand-green); border: 1px solid #ffffff38; border-radius: 999px; white-space: nowrap; }

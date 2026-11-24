@@ -15,6 +15,7 @@
     theme: ["theme", "topic", "group"], recommendation: ["recommendation", "manhattan recommendation", "recommendations"],
     expected_gain: ["expected gain", "estimated gain", "gain estimate"], gain_details: ["gain details", "gain detail", "expected gain details"],
     feasibility_note: ["feasibility note", "feasability note", "feasibility comment", "feasability comment"],
+    research: ["researcher notes", "researcher", "research notes", "research"],
   };
   const SCORING_COLS = {
     id: ["id"], expected_value: ["expected value", "value"],
@@ -64,7 +65,7 @@
       solution: clean(raw.solution), solution_type: clean(raw.solution_type), retrofit: clean(raw.retrofit),
       global_adoption: clean(raw.global_adoption), complexity: level(raw.complexity), gain: level(raw.gain),
       owner: clean(raw.owner), theme: clean(raw.theme), recommendation: clean(raw.recommendation),
-      expected_gain: clean(raw.expected_gain), gain_details: clean(raw.gain_details), feasibility_note: clean(raw.feasibility_note),
+      expected_gain: clean(raw.expected_gain), gain_details: clean(raw.gain_details), feasibility_note: clean(raw.feasibility_note), research: clean(raw.research),
       expected_value: num(raw.expected_value), feasibility: num(raw.feasibility), score: null, scores_estimated: false,
       requires_support: null, client_comment: null, quadrant: null, rank: null,
     };
@@ -125,7 +126,7 @@
 
   const SCORE_FIELDS = ["expected_value", "feasibility", "score", "complexity", "gain"];
   // `comments` is the workbook's "Other Comments": internal, never in the client documents.
-  const TEXT_FIELDS = ["issue", "solution", "recommendation", "client_comment", "comments", "theme", "expected_gain", "gain_details", "feasibility_note"];
+  const TEXT_FIELDS = ["issue", "solution", "recommendation", "client_comment", "comments", "theme", "expected_gain", "gain_details", "feasibility_note", "research"];
   const EDITABLE = [...SCORE_FIELDS, ...TEXT_FIELDS];
 
   /** Values edited on the page: { "<id>": { field: value } }. Mirrors findings.apply_overrides. */

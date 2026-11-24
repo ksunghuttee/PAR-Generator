@@ -608,3 +608,18 @@ html.theme-light .cp-btn-ai { color: #fff; }
 .cp-grid.is-full-reco td { height: 18px; vertical-align: top; padding-top: 6px; padding-bottom: 6px; line-height: 18px; }
 .cp-grid.is-full-reco td.cp-grid-expand { padding-top: 0; padding-bottom: 0; height: 30px; line-height: normal; }
 .cp-grid.is-full-reco td.is-editing { padding: 0; }
+
+/* Ask-the-researcher pop-up and column */
+.cp-dialog { width: min(640px, calc(100vw - 32px)); padding: 0; color: var(--text); background: var(--panel-bg); border: 1px solid var(--input-border); border-radius: 8px; box-shadow: 0 24px 64px #00000066; }
+.cp-dialog::backdrop { background: #0008; }
+.cp-dialog-form { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; }
+.cp-dialog-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.cp-dialog-title { margin: 0; font-size: 16px; font-weight: 600; }
+.cp-dialog-sub { margin-top: 2px; font-size: 12px; color: var(--muted-color); }
+.cp-dialog-msg { margin: 0; font-size: 12px; color: var(--danger-text); }
+.cp-dialog-msg:empty { display: none; }
+.cp-dialog-foot { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+.cp-dialog-foot .cp-source-note { margin-right: auto; }
+.cp-dialog .cp-field > span { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted-color); }
+.cp-grid td.is-asking { color: var(--app-accent); font-style: italic; }
+.cp-grid .cp-lock { vertical-align: -1px; opacity: .7; }

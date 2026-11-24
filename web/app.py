@@ -19,7 +19,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from par_generator import content, drafting, findings, metrics, slides, word, workbook
+from par_generator import content, drafting, findings, metrics, research, slides, word, workbook
 
 MAX_UPLOAD = 25 * 1024 * 1024
 STATIC = Path(__file__).parent / "static"
@@ -108,6 +108,22 @@ async def draft(
     except drafting.DraftError as e:
         raise HTTPException(503, str(e)) from e
     return JSONResponse(result)
+
+
+@app.get("/api/research")
+def research_status():
+    """Whether a researcher MCP server is configured (the page labels the button accordingly)."""
+    return {"configured": research.configured()}
+
+
+@app.post("/api/research")
+async def ask_researcher(question: str = Form(...)):
+    """Send one question to the researcher MCP server. Nothing is stored: the page puts the
+    answer in the finding's Researcher column (internal, never in the client documents)."""
+    try:
+        return JSONResponse(await research.ask(question))
+    except research.ResearchError as e:
+        raise HTTPException(503, str(e)) from e
 
 
 @app.post("/api/analyze")
