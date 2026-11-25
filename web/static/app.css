@@ -623,3 +623,4 @@ html.theme-light .cp-btn-ai { color: #fff; }
 .cp-dialog .cp-field > span { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted-color); }
 .cp-grid td.is-asking { color: var(--app-accent); font-style: italic; }
 .cp-grid .cp-lock { vertical-align: -1px; opacity: .7; }
+.cp-lang-note { margin: -4px 0 4px; color: var(--warning-text); }

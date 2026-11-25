@@ -472,3 +472,63 @@ def test_dummy_wm_expert_topics():
     assert wm_expert.match_topics("Operators walk to a shared printer for every iLPN label")[0]["id"] == "printing"
     a = wm_expert.answer("Something unrelated")
     assert "General guidance" in a and "Simulated answer" in a
+
+
+# ---- languages of the deliverables -----------------------------------------------------------
+def test_i18n_strings_complete():
+    from par_generator import i18n
+
+    for key, entry in i18n.STRINGS.items():
+        for lang in i18n.LANGUAGES:
+            assert entry.get(lang), f"{key} has no {lang} text"
+    for key, entry in i18n.TEMPLATE.items():
+        for lang in ("fr", "es", "it"):
+            assert entry.get(lang), f"template '{key}' has no {lang} text"
+    # placeholders match across languages
+    import re
+    for key, entry in i18n.STRINGS.items():
+        fields = {lang: sorted(set(re.findall(r"\{(\w+)\}", t))) for lang, t in entry.items()}
+        assert len({tuple(v) for v in fields.values()}) == 1, (key, fields)
+
+
+@pytest.mark.parametrize("lang,heading,deck_word,ph", [
+    ("fr", "Synthèse", "Actions prioritaires", "[Rédiger la recommandation Manhattan]"),
+    ("es", "Resumen ejecutivo", "Acciones principales", "[Redactar la recomendación de Manhattan]"),
+    ("it", "Sintesi", "Azioni principali", "[Scrivere la raccomandazione Manhattan]"),
+])
+def test_deliverables_in_language(lang, heading, deck_word, ph):
+    from par_generator import content as C
+
+    d = findings.load(workbook())
+    m = _meta(d)
+    m.language = lang
+    m.executive_summary = C.draft_executive_summary(d, m)
+    doc = Document(io.BytesIO(word.build_report(d, m)))
+    heads = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
+    body = "\n".join(p.text for p in doc.paragraphs)
+    assert heading in heads and ph in body
+    for english in ("Executive Summary", "Summary of Recommendations", "Manhattan Recommendation", "Recap", "Introduction "):
+        assert english not in heads
+    prs = Presentation(io.BytesIO(slides.build_deck(d, m)))
+    text = "\n".join(sh.text_frame.text for s in prs.slides for sh in s.shapes if sh.has_text_frame)
+    assert deck_word in text
+    for english in ("Several deliverables", "Identified actions", "Feasibility Score", "Expected Value", "Remaining actions"):
+        assert english not in text, english
+    assert m.executive_summary[0] != _meta(d).executive_summary[:1]  # drafted in the language
+
+
+def test_generate_language_api_and_prompt():
+    from par_generator import drafting
+
+    c = TestClient(app)
+    r = c.post("/api/generate", files={"file": ("w.xlsx", workbook())},
+               data={"kind": "docx", "client": "Acmé", "site": "DC1", "language": "fr"})
+    assert r.status_code == 200 and "Rapport.docx" in r.headers["content-disposition"]
+    assert "filename*=UTF-8''" in r.headers["content-disposition"]
+    r = c.post("/api/analyze", files={"file": ("w.xlsx", workbook())}, data={"client": "Acme", "site": "DC1", "language": "es"})
+    assert r.json()["draft_executive_summary"][0].startswith("Los equipos de Acme")
+    d = findings.load(workbook())
+    m = _meta(d)
+    m.language = "it"
+    assert "Write, in Italian," in drafting.prompt(d, m)
+    assert "British English" in drafting.prompt(d, _meta(d))

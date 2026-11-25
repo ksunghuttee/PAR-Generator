@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import font_manager  # noqa: E402
 
 from .content import NAVY, QUADRANT_COLOURS  # noqa: E402
+from .i18n import Tr
 from .findings import QUADRANTS, PARData  # noqa: E402
 
 _installed = {f.name for f in font_manager.fontManager.ttflist}
@@ -37,13 +38,13 @@ def _png(fig) -> io.BytesIO:
     return buf
 
 
-def bar_counts(pairs: list[tuple[str, int]], title: str = "", color: str = NAVY) -> io.BytesIO:
+def bar_counts(pairs: list[tuple[str, int]], title: str = "", color: str = NAVY, language: str = "en") -> io.BytesIO:
     pairs = sorted(pairs, key=lambda p: p[1])
     labels, values = [p[0] for p in pairs], [p[1] for p in pairs]
     fig, ax = plt.subplots(figsize=(6.3, max(1.6, 0.27 * len(pairs) + 0.6)))
     bars = ax.barh(labels, values, color="#" + color, height=0.65)
     ax.bar_label(bars, padding=3, fontsize=8, color="#404040")
-    ax.set_xlabel("Number of findings")
+    ax.set_xlabel(Tr(language)("chart_n_findings"))
     ax.xaxis.get_major_locator().set_params(integer=True)
     ax.spines["left"].set_visible(False)
     ax.tick_params(axis="y", length=0)
@@ -52,8 +53,8 @@ def bar_counts(pairs: list[tuple[str, int]], title: str = "", color: str = NAVY)
     return _png(fig)
 
 
-def priority_matrix(data: PARData) -> io.BytesIO:
-    st = data.settings
+def priority_matrix(data: PARData, language: str = "en") -> io.BytesIO:
+    tr, st = Tr(language), data.settings
     pts = [f for f in data.retained if f.quadrant]
     fig, ax = plt.subplots(figsize=(6.3, 4.6))
     xs = [f.feasibility for f in pts] or [0]
@@ -66,7 +67,8 @@ def priority_matrix(data: PARData) -> io.BytesIO:
              "deprioritise": (xmin, st.feasibility_threshold, ymin, st.value_threshold)}
     for q, (x0, x1, y0, y1) in shade.items():
         ax.fill_between([x0, x1], y0, y1, color="#" + QUADRANT_COLOURS[q], alpha=0.07, lw=0)
-    for q, label in QUADRANTS.items():
+    for q in QUADRANTS:
+        label = tr.quadrant(q)
         qp = [f for f in pts if f.quadrant == q]
         if not qp:
             continue
@@ -80,7 +82,7 @@ def priority_matrix(data: PARData) -> io.BytesIO:
     ax.axhline(st.value_threshold, color="#7F7F7F", lw=0.8, ls="--")
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
-    ax.set_xlabel("Feasibility score  →  easier")
-    ax.set_ylabel("Expected value  →  higher gain")
+    ax.set_xlabel(tr("axis_feas"))
+    ax.set_ylabel(tr("axis_value"))
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=4, frameon=False, fontsize=8)
     return _png(fig)

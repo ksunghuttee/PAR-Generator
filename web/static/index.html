@@ -190,6 +190,15 @@
                 <label class="cp-field"><span>Restitution date</span><input class="cp-input" id="date" placeholder="dd/mm/yyyy"></label>
                 <label class="cp-field"><span>Visit period</span><input class="cp-input" id="visit" placeholder="e.g. 3 – 14 Mar 2026"></label>
               </div>
+              <label class="cp-field"><span>Language of the deliverables</span>
+                <select class="cp-select" id="language">
+                  <option value="en">English</option>
+                  <option value="fr">Français</option>
+                  <option value="es">Español</option>
+                  <option value="it">Italiano</option>
+                </select>
+              </label>
+              <p class="cp-source-note cp-lang-note" id="langNote" hidden></p>
               <label class="cp-check"><input type="checkbox" id="discarded" checked> Appendix listing discarded items</label>
               <p class="cp-source-note">Thresholds and the number of top items are set on the Review tab and apply to both documents.</p>
             </form>
@@ -256,6 +265,7 @@
     </form>
   </dialog>
   <script src="static/charts.js"></script>
+  <script src="static/i18n.js"></script>
   <script src="static/claude.js"></script>
   <script src="static/app.js"></script>
   <script src="static/metrics.js"></script>

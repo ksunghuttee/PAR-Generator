@@ -248,16 +248,17 @@
     };
   }
 
+  // Mirrors content.draft_executive_summary, in the deliverables' language.
   function draftSummary(s, meta) {
+    const tr = window.PARTr(meta.language);
     const client = meta.client || "Client", site = meta.site || "Site", visit = meta.visit_period;
-    const join = (xs) => (xs.length === 1 ? xs[0] : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
-    const lines = [`A Performance Analysis Review (PAR) was carried out by the ${client} and Manhattan teams at the ${site} site${visit ? ` (${visit})` : ""}.`];
+    const lines = [tr("es_1", { client, site, period: visit ? ` (${visit})` : "" })];
     const top3 = [...s.by_activity].sort((a, b) => b[1] - a[1]).slice(0, 3).map((a) => a[0]);
-    lines.push(`**${s.retained} improvement opportunities** were identified across ${s.activities} operational processes, most of them in ${join(top3)}.`);
-    if (s.quadrants.quick_win) lines.push(`**${s.quadrants.quick_win} actions are quick wins**: simple to implement with a high expected value, and are proposed as the first batch of the action plan.`);
+    if (top3.length) lines.push(tr("es_2", { n: s.retained, a: s.activities, top: tr.join(top3) }));
+    if (s.quadrants.quick_win) lines.push(tr("es_3", { n: s.quadrants.quick_win }));
     const cfg = s.by_solution_type.filter(([t]) => /config|base|core/i.test(t)).reduce((a, [, n]) => a + n, 0);
-    if (s.retained) lines.push(`**${Math.round((100 * cfg) / s.retained)}% of the actions rely on standard configuration or base features**, without custom development.`);
-    if (s.retrofit || s.global_adoption) lines.push(`${s.retrofit} actions are eligible for **retrofit** and ${s.global_adoption} are candidates for **global adoption** across other sites.`);
+    if (s.retained) lines.push(tr("es_4", { pct: Math.round((100 * cfg) / s.retained) }));
+    if (s.retrofit || s.global_adoption) lines.push(tr("es_5", { r: s.retrofit, g: s.global_adoption }));
     return lines;
   }
 

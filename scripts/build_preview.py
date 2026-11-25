@@ -72,7 +72,7 @@ def build(out: Path) -> None:
     head_script = html[html.index("<script>"):html.index("</script>") + len("</script>")]
     body = html[html.index("<body>") + len("<body>"):html.index("</body>")]
     # Scripts are inlined below, in order.
-    for src in ("static/charts.js", "static/claude.js", "static/app.js", "static/metrics.js"):
+    for src in ("static/charts.js", "static/i18n.js", "static/claude.js", "static/app.js", "static/metrics.js"):
         body = body.replace(f'<script src="{src}"></script>', "")
     # Preview: label it, and point the upload note at the in-browser reader.
     body = body.replace(
@@ -83,7 +83,7 @@ def build(out: Path) -> None:
                         "In this preview the workbook is read in your browser and never uploaded.")
     rows = [dict(zip(KEYS, r)) for r in SAMPLE]
     # Metrics: the dummy provider's figures for the example site, one snapshot per period.
-    from par_generator import drafting, metrics, wm_expert
+    from par_generator import drafting, i18n, metrics, wm_expert
     snapshot = {p: metrics.get_metrics("Lyon DC", p).to_json() for p in metrics.PERIODS}
     peers = {p: {v: metrics.get_metrics("Lyon DC", p, v).peers for v in metrics.VERTICALS} for p in metrics.PERIODS}
     local = (
@@ -96,6 +96,8 @@ def build(out: Path) -> None:
         # The researcher MCP server on the consultant's PC, reached through the Claude desktop app.
         f"window.PAR_LOCAL.researcher = {json.dumps(RESEARCHER)};\n"
         f"window.PAR_LOCAL.wmExpert = {json.dumps(wm_expert.KB)};\n"
+        # Fixed text of the deliverables in each language (par_generator/i18n.json).
+        f"window.PAR_I18N = {json.dumps({'languages': i18n.LANGUAGES, 'strings': i18n.STRINGS})};\n"
     ).replace("<", "\\u003c")
     css = (STATIC / "app.css").read_text() + """
 .app-navbar-preview { align-self: center; margin-left: 8px; padding: 2px 8px; font-size: 11px; font-weight: 600; color: var(--m-brand-green); border: 1px solid #ffffff38; border-radius: 999px; white-space: nowrap; }
@@ -113,6 +115,9 @@ def build(out: Path) -> None:
 <script src="{SHEETJS}"></script>
 <script>
 {(STATIC / "charts.js").read_text()}
+</script>
+<script>
+{(STATIC / "i18n.js").read_text()}
 </script>
 <script>
 {(STATIC / "engine.js").read_text()}

@@ -6,7 +6,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
-from .findings import QUADRANTS, PARData
+from .findings import PARData
+from .i18n import Tr
 
 # Brand colours of the Manhattan PAR templates (deck theme + body text).
 NAVY = "002060"
@@ -34,6 +35,11 @@ class ReportMeta:
     executive_summary: list[str] = field(default_factory=list)
     conclusion: str = ""
     include_discarded: bool = True
+    language: str = "en"  # en, fr, es, it: fixed text of the deliverables
+
+    @property
+    def tr(self) -> Tr:
+        return Tr(self.language)
 
     @property
     def year(self) -> str:
@@ -47,58 +53,34 @@ def split_bold(text: str) -> list[tuple[str, bool]]:
     return [(p[2:-2], True) if p.startswith("**") and p.endswith("**") else (p, False) for p in parts if p]
 
 
-def _join(items: list[str]) -> str:
-    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
-
-
 def draft_executive_summary(data: PARData, meta: ReportMeta) -> list[str]:
     """A factual first draft built from the numbers; the consultant edits it in the web form."""
-    s = data.summary()
+    tr, s = meta.tr, data.summary()
     period = f" ({meta.visit_period})" if meta.visit_period else ""
-    lines = [
-        f"A Performance Analysis Review (PAR) was carried out by the {meta.client} and Manhattan teams "
-        f"at the {meta.site} site{period}.",
-    ]
+    lines = [tr("es_1", client=meta.client, site=meta.site, period=period)]
     top_acts = [a for a, _ in sorted(s["by_activity"], key=lambda x: -x[1])[:3]]
-    lines.append(
-        f"**{s['retained']} improvement opportunities** were identified across {s['activities']} operational "
-        f"processes, most of them in {_join(top_acts)}."
-    )
+    lines.append(tr("es_2", n=s["retained"], a=s["activities"], top=tr.join(top_acts)) if top_acts else "")
     q = s["quadrants"]["quick_win"]
     if q:
-        lines.append(
-            f"**{q} actions are quick wins**: simple to implement with a high expected value, and are proposed "
-            "as the first batch of the action plan."
-        )
+        lines.append(tr("es_3", n=q))
     config_like = sum(n for t, n in s["by_solution_type"] if re.search(r"config|base|core", t, re.I))
     if s["retained"]:
-        pct = round(100 * config_like / s["retained"])
-        lines.append(
-            f"**{pct}% of the actions rely on standard configuration or base features**, without custom development."
-        )
+        lines.append(tr("es_4", pct=round(100 * config_like / s["retained"])))
     if s["retrofit"] or s["global_adoption"]:
-        lines.append(
-            f"{s['retrofit']} actions are eligible for **retrofit** and {s['global_adoption']} are candidates "
-            "for **global adoption** across other sites."
-        )
-    return lines
+        lines.append(tr("es_5", r=s["retrofit"], g=s["global_adoption"]))
+    return [x for x in lines if x]
 
 
-def quick_wins_text(data: PARData) -> list[tuple[int, str]]:
+def quick_wins_text(data: PARData, language: str = "en") -> list[tuple[int, str]]:
     """(indent level, text) lines for the 'Quick wins' slide."""
-    s = data.summary()["quadrants"]
-    st = data.settings
+    tr, s, st = Tr(language), data.summary()["quadrants"], data.settings
     return [
-        (0, f"**{s['quick_win']} items** are prioritised in a first batch of actions:"),
-        (1, "Quick wins – **simple implementation**"),
-        (1, "Immediate impact and result – **user experience and productivity**"),
-        (0, "Remaining actions are categorised as follows:"),
-        (1, f"{QUADRANTS['strategic']} ({s['strategic']}) – high value, more analysis and workload to implement"),
-        (1, f"{QUADRANTS['filler']} ({s['filler']}) – easy to implement, lower expected value"),
-        (1, f"{QUADRANTS['deprioritise']} ({s['deprioritise']}) – complex implementation with uncertain ROI"),
-        (
-            0,
-            f"Thresholds: expected value ≥ {st.value_threshold:g} and feasibility ≥ {st.feasibility_threshold:g}. "
-            f"The **{len(data.top_items())} top actions** are detailed in the following slides.",
-        ),
+        (0, tr("qw_first", n=s["quick_win"])),
+        (1, tr("qw_simple")),
+        (1, tr("qw_impact")),
+        (0, tr("qw_remaining")),
+        (1, tr("qw_strategic", name=tr.quadrant("strategic"), n=s["strategic"])),
+        (1, tr("qw_filler", name=tr.quadrant("filler"), n=s["filler"])),
+        (1, tr("qw_depri", name=tr.quadrant("deprioritise"), n=s["deprioritise"])),
+        (0, tr("qw_thresholds", vt=f"{st.value_threshold:g}", ft=f"{st.feasibility_threshold:g}", n=len(data.top_items()))),
     ]

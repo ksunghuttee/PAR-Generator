@@ -117,7 +117,8 @@
 
   // ---- data -------------------------------------------------------------------
   function meta() {
-    return { client: $("client").value.trim() || "Client", site: $("site").value.trim() || "Site", visit_period: $("visit").value.trim() };
+    return { client: $("client").value.trim() || "Client", site: $("site").value.trim() || "Site", visit_period: $("visit").value.trim(),
+      language: $("language").value };
   }
 
   async function analyze() {
@@ -125,7 +126,7 @@
     const fd = new FormData();
     fd.append("file", state.file);
     const m = meta();
-    fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period);
+    fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period); fd.append("language", m.language);
     for (const [k, v] of Object.entries(state.settings)) fd.append(k, v);
     fd.append("overrides", JSON.stringify(state.overrides));
     const res = await fetch("api/analyze", { method: "POST", body: fd });
@@ -1069,7 +1070,7 @@
   function renderExport() {
     const d = state.data, s = d.summary, n = d.top_items.length;
     const edits = Object.keys(state.overrides).length;
-    $("exportSub").textContent = `${d.file_name} · ${s.retained} findings · ${n} top items${edits ? ` · ${edits} edited rows included` : ""}`;
+    $("exportSub").textContent = `${d.file_name} · ${s.retained} findings · ${n} top items${edits ? ` · ${edits} edited rows included` : ""} · ${LANG_NAMES[$("language").value]}`;
     if (!state.summaryEdited) $("summary").value = d.draft_executive_summary.join("\n");
     $("outputs").innerHTML = `
       <div class="cp-output"><div class="cp-output-head"><h3 class="cp-output-title">Word report</h3><span class="cp-badge cp-badge-neutral">.docx</span></div>
@@ -1086,6 +1087,25 @@
           <li>Adds Recommendation and Theme columns if they are missing</li><li>Everything else in the file is left as it was</li></ul>
         <button type="button" class="cp-btn" data-wb>Download workbook</button></div>`;
   }
+
+  // Language of the deliverables: fixed text follows it at once; the auto-drafted summary is redrafted
+  // in it. Text someone wrote (summary, conclusion, recommendations) stays as written.
+  const LANG_NAMES = { en: "English", fr: "Français", es: "Español", it: "Italiano" };
+  try { const l = localStorage.getItem("par-language"); if (l && LANG_NAMES[l]) $("language").value = l; } catch (e) { /* storage unavailable */ }
+  $("language").addEventListener("change", () => {
+    try { localStorage.setItem("par-language", $("language").value); } catch (e) { /* storage unavailable */ }
+    const name = LANG_NAMES[$("language").value];
+    const written = [state.summaryEdited && "the executive summary", $("conclusion").value.trim() && "the conclusion",
+      state.data && state.data.findings.some((f) => !f.discarded && f.recommendation) && "the recommendations"].filter(Boolean);
+    const note = $("langNote");
+    note.hidden = !written.length;
+    if (written.length) {
+      const list = written.join(", ").replace(/, ([^,]*)$/, " and $1");
+      note.textContent = `Headings, tables, charts and slide labels switch to ${name}. ${list[0].toUpperCase() + list.slice(1)} stay as written: ` +
+        `use ✦ Generate with Claude (tick "Also redraft…" for the recommendations) to rewrite them in ${name}.`;
+    }
+    if (!state.summaryEdited) reanalyze(0); else if (state.data) renderExport();
+  });
 
   $("summary").addEventListener("input", () => { state.summaryEdited = true; saveNarrative(); });
   $("conclusion").addEventListener("input", saveNarrative);
@@ -1121,7 +1141,7 @@
     fd.append("file", state.file);
     fd.append("kind", kind);
     const m = meta();
-    fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period);
+    fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period); fd.append("language", m.language);
     fd.append("author", $("author").value); fd.append("date", $("date").value);
     fd.append("executive_summary", $("summary").value); fd.append("include_discarded", $("discarded").checked);
     fd.append("conclusion", $("conclusion").value);
@@ -1190,7 +1210,7 @@
         const fd = new FormData();
         fd.append("file", state.file);
         const m = meta();
-        fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period);
+        fd.append("client", m.client); fd.append("site", m.site); fd.append("visit_period", m.visit_period); fd.append("language", m.language);
         for (const [k, v] of Object.entries(state.settings)) fd.append(k, v);
         fd.append("overrides", JSON.stringify(state.overrides));
         fd.append("redraft_existing", redraft);

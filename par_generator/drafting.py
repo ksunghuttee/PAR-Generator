@@ -17,6 +17,7 @@ import os
 
 from .content import ReportMeta
 from .findings import PARData
+from .i18n import Tr
 
 MODEL = os.environ.get("PAR_CLAUDE_MODEL", "claude-opus-5-5")
 
@@ -26,7 +27,7 @@ narrative of a PAR (Performance Analysis Review) for a distribution centre runni
 You get the review's facts as JSON: the client and site, headline counts, and the retained findings, each with its
 activity, issue, proposed solution, solution type, complexity, gain, priority and whether it is a top item.
 
-Write, in British English, in a confident, factual consulting tone:
+Write, in {language}, in a confident, factual consulting tone:
 1. "executive_summary": 4 to 6 short paragraphs (one or two sentences each) for the report and the deck. The first
    sets the context (who reviewed what, where, when if given). The others give the main messages: the volume and
    spread of opportunities, the quick wins, the themes that matter most, what most actions rely on (configuration vs
@@ -40,6 +41,9 @@ Write, in British English, in a confident, factual consulting tone:
    first, design or analysis needed, involve the client's teams). Do not repeat the finding's title. Do not invent
    product names, extension codes, figures or dates that are not in the data. When the data is too thin, recommend
    the analysis needed to decide.
+
+The review data may be written in another language: write everything in {language} all the same, keeping product,
+screen and extension names as they appear in the data. Keep the JSON keys in English.
 
 Reply with only one JSON object of this shape, no other text:
 {"executive_summary": ["...", "..."], "conclusion": "...", "recommendations": [{"id": "12", "text": "..."}]}"""
@@ -95,8 +99,14 @@ def brief(data: PARData, meta: ReportMeta, redraft_existing: bool = False) -> di
     }
 
 
+def instructions(language: str = "en") -> str:
+    """The instructions, asking for the deliverables' language. The review data can be in any language
+    (often the consultant's); Claude writes in the deliverables' language and keeps product terms as they are."""
+    return INSTRUCTIONS.replace("{language}", Tr(language).claude_name)
+
+
 def prompt(data: PARData, meta: ReportMeta, redraft_existing: bool = False) -> str:
-    return INSTRUCTIONS + "\n\nREVIEW DATA:\n" + json.dumps(brief(data, meta, redraft_existing), ensure_ascii=False)
+    return instructions(meta.language) + "\n\nREVIEW DATA:\n" + json.dumps(brief(data, meta, redraft_existing), ensure_ascii=False)
 
 
 def clean(result: dict, data: PARData) -> dict:

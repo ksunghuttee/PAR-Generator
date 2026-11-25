@@ -18,6 +18,7 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
 from .content import BLUE, GREY, NAVY, QUADRANT_COLOURS, ReportMeta, quick_wins_text, split_bold
+from .i18n import Tr
 from .findings import FEASIBILITY_MAX, QUADRANTS, Finding, PARData
 
 TEMPLATE = Path(__file__).parent / "templates" / "deck_template.pptx"
@@ -184,7 +185,8 @@ def _bar_chart(slide, x, y, w, h, pairs, colour):
     return gf
 
 
-def _matrix_chart(slide, data: PARData, x, y, w, h):
+def _matrix_chart(slide, data: PARData, x, y, w, h, tr: Tr | None = None):
+    tr = tr or Tr()
     st = data.settings
     pts = [f for f in data.retained if f.quadrant]
     cd = XyChartData()
@@ -193,7 +195,7 @@ def _matrix_chart(slide, data: PARData, x, y, w, h):
     # points than a later one (PowerPoint is unaffected).
     order = sorted([o for o in order if o[1]], key=lambda o: -len(o[1]))
     for q, qp in order:
-        s = cd.add_series(f"{QUADRANTS[q]} ({len(qp)})")
+        s = cd.add_series(f"{tr.quadrant(q)} ({len(qp)})")
         for f in qp:
             s.add_data_point(f.feasibility, f.expected_value)
     xs = [f.feasibility for f in pts] or [0]
@@ -241,8 +243,8 @@ def _matrix_chart(slide, data: PARData, x, y, w, h):
         etree.SubElement(le, qn("c:idx")).set("val", str(idx))
         etree.SubElement(le, qn("c:delete")).set("val", "1")
         legend_xml.insert(1, le)  # legendEntry must follow legendPos
-    for axis, lo, hi, title in ((ch.category_axis, xmin, xmax, "Feasibility score  →  easier"),
-                                (ch.value_axis, ymin, ymax, "Expected value  →  higher gain")):
+    for axis, lo, hi, title in ((ch.category_axis, xmin, xmax, tr("axis_feas")),
+                                (ch.value_axis, ymin, ymax, tr("axis_value"))):
         axis.minimum_scale, axis.maximum_scale = lo, hi
         axis.has_major_gridlines = False
         axis.format.line.color.rgb = _rgb("BFBFBF")
@@ -341,12 +343,13 @@ def _cell_border(shape):
     shape.line.width = Pt(0.75)
 
 
-def _top_item_slide(prs, layout, f: Finding, client: str):
+def _top_item_slide(prs, layout, f: Finding, client: str, tr: Tr | None = None):
+    tr = tr or Tr()
     s = prs.slides.add_slide(layout)
     for ph in list(s.placeholders):
         idx = ph.placeholder_format.idx
         if idx == 0:
-            ph.text_frame.text = "Top Items"
+            ph.text_frame.text = tr("top_items")
             r = ph.text_frame.paragraphs[0].runs[0]
             r.font.bold = True
             r.font.name = BOLD_FONT
@@ -373,19 +376,19 @@ def _top_item_slide(prs, layout, f: Finding, client: str):
         _cell_border(_rect(s, x, y, w, h, fill=fill))
 
     # Process / Type
-    _band(s, 0, top, left_w, band, "Process", size=16)
+    _band(s, 0, top, left_w, band, tr("band_process"), size=16)
     _textbox(s, 0, top + band, left_w, row, f.activity, size=16, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-    _band(s, 0, top + band + row, left_w, band, "Type", size=16)
+    _band(s, 0, top + band + row, left_w, band, tr("band_type"), size=16)
     _textbox(s, 0, top + 2 * band + row, left_w, row, f.solution_type or "—", size=16, align=PP_ALIGN.CENTER,
              anchor=MSO_ANCHOR.MIDDLE)
 
     # Issue
-    _band(s, left_w, top, mid_w, band, "Issue", size=16, align=PP_ALIGN.LEFT)
+    _band(s, left_w, top, mid_w, band, tr("band_issue"), size=16, align=PP_ALIGN.LEFT)
     _textbox(s, left_w + 60000, top + band, mid_w - 120000, body_y - top - band, f.issue or "",
              size=_fit(f.issue, ((160, 15), (300, 13), (480, 12), (700, 11))), anchor=MSO_ANCHOR.MIDDLE)
 
     # Recommendation
-    _band(s, 0, body_y, left_w + mid_w, band, "Recommendation", size=16, align=PP_ALIGN.LEFT)
+    _band(s, 0, body_y, left_w + mid_w, band, tr("band_reco"), size=16, align=PP_ALIGN.LEFT)
     tb = _textbox(s, 0, body_y + band + 40000, left_w + mid_w, bottom - body_y - band - 80000, "", size=14)
     tf = tb.text_frame
     if f.recommendation:
@@ -394,29 +397,29 @@ def _top_item_slide(prs, layout, f: Finding, client: str):
         p = tf.paragraphs[0]
         if f.solution:
             r = p.add_run()
-            r.text, r.font.size, r.font.bold = "Solution: ", Pt(14), True
+            r.text, r.font.size, r.font.bold = tr("solution_label") + (" : " if tr.lang == "fr" else ": "), Pt(14), True
             r = p.add_run()
             r.text, r.font.size = f.solution, Pt(14)
             p = tf.add_paragraph()
         r = p.add_run()
-        r.text, r.font.size = "[Write the Manhattan recommendation]", Pt(14)
+        r.text, r.font.size = f"[{tr('ph_reco')}]", Pt(14)
         _highlight(r)
         # Internal comments and next actions never go into the client deck.
 
     # Feasibility gauge: Complex on the left, Simple on the right
-    _band(s, right_x, top, right_w, band, "Feasibility Score", size=16)
+    _band(s, right_x, top, right_w, band, tr("band_feas"), size=16)
     gw = 1550000
     gx = right_x + (right_w - gw) // 2
     gy = top + band + 130000
     cy = _gauge(s, f.feasibility, gx, gy, gw)
-    _textbox(s, gx - 1000000, cy - 300000, 1000000, 280000, "Complex", size=12, align=PP_ALIGN.RIGHT)
-    _textbox(s, gx + gw, cy - 300000, 1000000, 280000, "Simple", size=12)
-    note = f.feasibility_note or (f"Complexity: {f.complexity}" if f.complexity else "Complexity to be assessed")
+    _textbox(s, gx - 1000000, cy - 300000, 1000000, 280000, tr("complex"), size=12, align=PP_ALIGN.RIGHT)
+    _textbox(s, gx + gw, cy - 300000, 1000000, 280000, tr("simple"), size=12)
+    note = f.feasibility_note or (tr("complexity_note", c=tr.level(f.complexity)) if f.complexity else tr("complexity_tba"))
     _bullets(s, right_x + 60000, cy + 90000, right_w - 120000, body_y - cy - 110000, [note], size=12)
 
     # Expected value: a headline figure (e.g. "0.3 FTE"), then bullets
-    _band(s, right_x, body_y, right_w, band, "Expected Value", size=16)
-    head = f.expected_gain or (f"{f.gain} gain" if f.gain else "To be quantified")
+    _band(s, right_x, body_y, right_w, band, tr("band_value"), size=16)
+    head = f.expected_gain or (tr("gain_head", g=tr.level(f.gain, "gain").lower() if tr.lang != "en" else f.gain) if f.gain else tr("to_quantify"))
     hb = _textbox(s, right_x, body_y + band + 40000, right_w, 520000, "", align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
     hp = hb.text_frame.paragraphs[0]
     hp.alignment = PP_ALIGN.CENTER
@@ -434,14 +437,15 @@ def _top_item_slide(prs, layout, f: Finding, client: str):
     details = [ln for ln in (f.gain_details or "").split("\n") if ln.strip()]
     if not details:
         if f.expected_value is not None:
-            details.append(f"Value score {f.expected_value:g}/{FEASIBILITY_MAX}")
+            details.append(tr("value_score", v=f"{f.expected_value:g}", max=FEASIBILITY_MAX))
         if f.score is not None:
-            details.append(f"Priority score {f.score:g}")
-        flags = [lbl for lbl, v in (("retrofit", f.retrofit), ("global adoption", f.global_adoption)) if (v or "").lower() == "yes"]
+            details.append(tr("priority_score", s=f"{f.score:g}"))
+        flags = [lbl for lbl, v in ((tr("flag_retrofit"), f.retrofit), (tr("flag_global"), f.global_adoption))
+                 if (v or "").lower() == "yes"]
         if flags:
-            details.append("Eligible for " + " and ".join(flags))
+            details.append(tr("eligible", flags=tr.join(flags)))
     if f.client_comment:
-        details.append(f"{client} feedback: {f.client_comment}")
+        details.append(tr("feedback", client=client, text=f.client_comment))
     _bullets(s, right_x + 60000, body_y + band + 600000, right_w - 120000, bottom - body_y - band - 650000, details,
              size=12 if sum(len(d) for d in details) < 220 else 11)
 
@@ -459,7 +463,7 @@ def _top_item_slide(prs, layout, f: Finding, client: str):
         tf = stamp.text_frame
         tf.word_wrap = True
         r = tf.paragraphs[0].add_run()
-        r.text = "Done" if done else f.status
+        r.text = tr("done") if done else f.status
         r.font.size, r.font.bold = Pt(16 if done else 11), True
         r.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
         tf.paragraphs[0].alignment = PP_ALIGN.CENTER
@@ -482,7 +486,46 @@ def _move_to_end(prs, slide) -> None:
             return
 
 
-def _deliverables_table(slide, data: PARData):
+def _translate_template(prs, tr: Tr) -> None:
+    """Fixed paragraphs of the template slides in the deliverable's language (the English
+    entries also fix the template's typos). **bold** in a translation becomes a bold run."""
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if not shape.has_text_frame:
+                continue
+            for p in shape.text_frame.paragraphs:
+                runs = p.runs
+                if not runs:
+                    continue
+                new = tr.template("".join(r.text for r in runs))
+                if new is None:
+                    continue
+                plain = next((r for r in runs if not r.font.bold), runs[0])
+                rpr = plain._r.find(qn("a:rPr"))
+                anchor = runs[0]._r
+                for chunk, bold in split_bold(new):  # each lands just before the old first run, in order
+                    r = etree.Element(qn("a:r"))
+                    if rpr is not None:
+                        r.append(etree.fromstring(etree.tostring(rpr)))
+                        if bold:
+                            r[0].set("b", "1")
+                        elif "b" in r[0].attrib:
+                            del r[0].attrib["b"]
+                    etree.SubElement(r, qn("a:t")).text = chunk
+                    anchor.addprevious(r)
+                for old in runs:
+                    old._r.getparent().remove(old._r)
+
+
+def _set_language(prs, tag: str) -> None:
+    """Proofing language of every run, so PowerPoint spell-checks in the deliverable's language."""
+    for slide in prs.slides:
+        for el in slide._element.iter(qn("a:rPr"), qn("a:endParaRPr")):
+            el.set("lang", tag)
+
+
+def _deliverables_table(slide, data: PARData, tr: Tr | None = None):
+    tr = tr or Tr()
     rows = data.top_items()[:5]
     if not rows:
         return
@@ -492,7 +535,7 @@ def _deliverables_table(slide, data: PARData):
     widths = [0.17, 0.53, 0.1, 0.1, 0.1]
     for i, ratio in enumerate(widths):
         tbl.columns[i].width = Emu(int(w * ratio))
-    for c, h in enumerate(["Activity", "Name", "Value", "Feasibility", "Score"]):
+    for c, h in enumerate([tr("col_activity"), tr("col_name"), tr("col_value"), tr("col_feasibility"), tr("col_score")]):
         tbl.cell(0, c).text = h
     for r, f in enumerate(rows, 1):
         for c, v in enumerate([f.activity, f.name, f.expected_value, f.feasibility, f.score]):
@@ -509,6 +552,8 @@ def _deliverables_table(slide, data: PARData):
 def build_deck(data: PARData, meta: ReportMeta) -> bytes:
     prs = Presentation(TEMPLATE)
     slides = list(prs.slides)
+    tr = meta.tr
+    _translate_template(prs, tr)
 
     title = _find(slides[S_TITLE - 1], "title")
     _fill(title, [(0, f"PAR {meta.year} - {meta.site}", False)])
@@ -519,31 +564,33 @@ def build_deck(data: PARData, meta: ReportMeta) -> bytes:
         br.append(etree.fromstring(etree.tostring(rpr)))
     p.runs[-1]._r.addnext(br)
     r = p.add_run()
-    r.text = "Restitution"
+    r.text = tr("restitution")
     _style_run(r, False, rpr)
     _replace_tokens(prs, {"date": meta.date, "author": meta.author.upper(), "client": meta.client})
 
-    _deliverables_table(slides[S_DELIVERABLES - 1], data)
+    _deliverables_table(slides[S_DELIVERABLES - 1], data, tr)
 
     lines = meta.executive_summary or [""]
     # First line is the context sentence (no bullet), the rest are the key points.
     _fill(_find(slides[S_EXEC - 1], "executive_summary"), [(0, lines[0], False)] + [(0, l, True) for l in lines[1:]])
 
-    _matrix_chart(slides[S_MATRIX - 1], data, 841248, 1650000, 10515600, 4950000)
+    _matrix_chart(slides[S_MATRIX - 1], data, 841248, 1650000, 10515600, 4950000, tr)
 
     s = data.summary()
     _bar_chart(slides[S_BREAKDOWN - 1], 321322, 2150000, 5300000, 4500000, s["by_solution_type"], NAVY)
     _bar_chart(slides[S_BREAKDOWN - 1], 5793532, 2150000, 5300000, 4500000, s["by_activity"], BLUE)
 
-    _fill(_find(slides[S_QUICK_WINS - 1], "quick_wins"), [(lvl, t, True) for lvl, t in quick_wins_text(data)])
+    _fill(_find(slides[S_QUICK_WINS - 1], "quick_wins"), [(lvl, t, True) for lvl, t in quick_wins_text(data, meta.language)])
 
     layout = next(l for l in prs.slide_layouts if l.name == "6_Custom Layout")
     for f in data.top_items():
-        _top_item_slide(prs, layout, f, meta.client)
+        _top_item_slide(prs, layout, f, meta.client, tr)
     _move_to_end(prs, slides[S_QUESTIONS - 1])
 
     cp = prs.core_properties
-    cp.title = f"PAR {meta.year} - {meta.client} {meta.site} - Restitution"
+    cp.title = f"PAR {meta.year} - {meta.client} {meta.site} - {tr('restitution')}"
+    cp.language = tr.tag
+    _set_language(prs, tr.tag)
     cp.author = meta.author or "Manhattan Associates"
     buf = io.BytesIO()
     prs.save(buf)

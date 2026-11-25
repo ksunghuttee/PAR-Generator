@@ -19,7 +19,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from par_generator import content, drafting, findings, metrics, research, slides, word, workbook
+from par_generator import content, drafting, findings, i18n, metrics, research, slides, word, workbook
 
 MAX_UPLOAD = 25 * 1024 * 1024
 STATIC = Path(__file__).parent / "static"
@@ -98,11 +98,13 @@ async def draft(
     top_n: int = Form(15),
     overrides: str = Form(""),
     redraft_existing: bool = Form(False),
+    language: str = Form("en"),
 ):
     """Claude drafts the executive summary, the conclusion and the missing recommendations.
     Nothing is saved: the page puts the drafts into its editable fields for review."""
     data = _load(await _read(file), value_threshold, feasibility_threshold, top_n, overrides)
-    meta = content.ReportMeta(client=client.strip() or "Client", site=site.strip() or "Site", visit_period=visit_period.strip())
+    meta = content.ReportMeta(client=client.strip() or "Client", site=site.strip() or "Site", visit_period=visit_period.strip(),
+                              language=i18n.norm_lang(language))
     try:
         result = await run_in_threadpool(drafting.draft, data, meta, redraft_existing)
     except drafting.DraftError as e:
@@ -136,9 +138,11 @@ async def analyze(
     feasibility_threshold: float = Form(10),
     top_n: int = Form(15),
     overrides: str = Form(""),
+    language: str = Form("en"),
 ):
     data = _load(await _read(file), value_threshold, feasibility_threshold, top_n, overrides)
-    meta = content.ReportMeta(client=client or "Client", site=site or "Site", visit_period=visit_period)
+    meta = content.ReportMeta(client=client or "Client", site=site or "Site", visit_period=visit_period,
+                              language=i18n.norm_lang(language))
     out = data.to_json()
     out["draft_executive_summary"] = content.draft_executive_summary(data, meta)
     out["file_name"] = file.filename
@@ -177,6 +181,7 @@ async def generate(
     executive_summary: str = Form(""),
     conclusion: str = Form(""),
     include_discarded: bool = Form(True),
+    language: str = Form("en"),
     value_threshold: float = Form(10),
     feasibility_threshold: float = Form(10),
     top_n: int = Form(15),
@@ -191,6 +196,7 @@ async def generate(
         author=author.strip(),
         visit_period=visit_period.strip(),
         include_discarded=include_discarded,
+        language=i18n.norm_lang(language),
     )
     if date.strip():
         meta.date = date.strip()
@@ -198,15 +204,24 @@ async def generate(
     meta.executive_summary = lines or content.draft_executive_summary(data, meta)
     meta.conclusion = conclusion.strip()
 
-    base = _safe(f"PAR {meta.year} - {meta.client} {meta.site}")
+    base, tr = _safe(f"PAR {meta.year} - {meta.client} {meta.site}"), meta.tr
+    report, deck = f"{base} - {tr('file_report')}.docx", f"{base} - {tr('file_deck')}.pptx"
     if kind == "docx":
-        body, mime, name = word.build_report(data, meta), DOCX, f"{base} - Report.docx"
+        body, mime, name = word.build_report(data, meta), DOCX, report
     elif kind == "pptx":
-        body, mime, name = slides.build_deck(data, meta), PPTX, f"{base} - Restitution.pptx"
+        body, mime, name = slides.build_deck(data, meta), PPTX, deck
     else:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            z.writestr(f"{base} - Report.docx", word.build_report(data, meta))
-            z.writestr(f"{base} - Restitution.pptx", slides.build_deck(data, meta))
+            z.writestr(report, word.build_report(data, meta))
+            z.writestr(deck, slides.build_deck(data, meta))
         body, mime, name = buf.getvalue(), "application/zip", f"{base}.zip"
-    return Response(body, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    return Response(body, media_type=mime, headers={"Content-Disposition": _disposition(name)})
+
+
+def _disposition(name: str) -> str:
+    """attachment; ASCII fallback plus the UTF-8 name (accented client or file names)."""
+    from urllib.parse import quote
+
+    ascii_name = name.encode("ascii", "replace").decode().replace("?", "_").replace('"', "")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"

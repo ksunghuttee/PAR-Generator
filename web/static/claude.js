@@ -13,7 +13,7 @@
 (function () {
   const NAVY = "002060", BLUE = "0070C0", ACCENT = "4472C4", INK = "0E0E0E", GREY = "6F6F6F";
   const QUAD = {
-    quick_win: ["Quick wins", "23955B"], strategic: ["Strategic", "2563C9"],
+    quick_win: ["Quick wins", "23955B"], strategic: ["Strategic", "2563C9"], // names: tr.quadrant(q)
     filler: ["Fillers", "D08A12"], deprioritise: ["Deprioritise", "B03A7C"],
   };
   const LIBS = {
@@ -87,7 +87,7 @@
     const sample = await cap("sample");
     if (!sample) throw new Error("Claude isn't available in this view. Open the page in claude.ai to draft with Claude.");
     const L = window.PAR_LOCAL || {};
-    const prompt = L.instructions + "\n\nREVIEW DATA:\n" + JSON.stringify(brief(data, meta, opts.redraftExisting));
+    const prompt = L.instructions.split("{language}").join(window.PARTr(meta.language).claudeName) + "\n\nREVIEW DATA:\n" + JSON.stringify(brief(data, meta, opts.redraftExisting));
     try {
       const result = await sample.json(prompt, {
         modelTier: "complex", signal: opts.signal, cache: false,
@@ -133,16 +133,17 @@
   }
   const byIdMap = (data) => new Map(data.findings.map((f) => [String(f.id), f]));
   const fileStem = (doc) => `PAR - ${doc.meta.client} ${doc.meta.site}`.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  const trOf = (doc) => window.PARTr(doc.meta.language);
 
   // ---- Word report ------------------------------------------------------------
   async function buildDocx(data, doc) {
     const D = await lib("docx");
     const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ShadingType, AlignmentType, PageBreak, BorderStyle } = D;
-    const m = doc.meta, s = data.summary;
+    const m = doc.meta, s = data.summary, tr = trOf(doc);
     const run = (text, o = {}) => new TextRun({ text: String(text ?? ""), font: "Calibri", size: 21, color: INK, ...o });
     const para = (text, o = {}) => new Paragraph({ spacing: { after: 120 }, ...o, children: splitBold(text).map(([t, b]) => run(t, { bold: b })) });
     const h = (text, level, pageBreak) => new Paragraph({ heading: level, pageBreakBefore: !!pageBreak, spacing: { before: 240, after: 120 }, children: [new TextRun({ text, font: "Calibri", color: level === HeadingLevel.HEADING_1 ? NAVY : BLUE, bold: true, size: level === HeadingLevel.HEADING_1 ? 32 : level === HeadingLevel.HEADING_2 ? 26 : 22 })] });
-    const label = (title, text) => new Paragraph({ spacing: { after: 100 }, children: [run(title + ": ", { bold: true, color: NAVY }), run(text)] });
+    const label = (title, text) => new Paragraph({ spacing: { after: 100 }, children: [run(title + tr.sep, { bold: true, color: NAVY }), run(text)] });
     const cell = (text, o = {}) => new TableCell({
       shading: o.fill ? { type: ShadingType.CLEAR, color: "auto", fill: o.fill } : undefined,
       width: o.w ? { size: Math.round(o.w * TW), type: WidthType.DXA } : undefined,
@@ -163,66 +164,62 @@
     const ids = byIdMap(data);
     const body = [];
     // Cover
-    body.push(new Paragraph({ spacing: { before: 2400, after: 200 }, children: [new TextRun({ text: "Performance Analysis Review", font: "Calibri", size: 56, bold: true, color: NAVY })] }));
+    body.push(new Paragraph({ spacing: { before: 2400, after: 200 }, children: [new TextRun({ text: tr("doc_title"), font: "Calibri", size: 56, bold: true, color: NAVY })] }));
     body.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: `${m.client} – ${m.site}`, font: "Calibri", size: 36, color: BLUE })] }));
-    if (m.visit_period) body.push(para(`Visit: ${m.visit_period}`));
+    if (m.visit_period) body.push(para(tr("visit", { period: m.visit_period })));
     body.push(para([m.author, m.date].filter(Boolean).join(" · ")));
-    body.push(new Paragraph({ spacing: { before: 1200 }, children: [run("Manhattan Associates · Confidential", { color: GREY, size: 18 })] }));
+    body.push(new Paragraph({ spacing: { before: 1200 }, children: [run(tr("confidential"), { color: GREY, size: 18 })] }));
 
     // Executive summary
-    body.push(h("Executive Summary", HeadingLevel.HEADING_1, true));
+    body.push(h(tr("h_exec"), HeadingLevel.HEADING_1, true));
     (doc.summary.length ? doc.summary : data.draft_executive_summary).forEach((t) => body.push(para(t)));
 
     // Summary of recommendations
-    body.push(h("Summary of Recommendations", HeadingLevel.HEADING_1, true));
-    body.push(para(`**${s.retained} findings** were retained across ${s.activities} activities. They are prioritised by expected value and feasibility (thresholds ${data.settings.value_threshold} and ${data.settings.feasibility_threshold}).`));
-    body.push(table(["Priority", "Findings", "What it means"], [
-      [QUAD.quick_win[0], String(s.quadrants.quick_win), "High value, easy to implement: first batch of actions"],
-      [QUAD.strategic[0], String(s.quadrants.strategic), "High value, more analysis and workload to implement"],
-      [QUAD.filler[0], String(s.quadrants.filler), "Easy to implement, lower expected value"],
-      [QUAD.deprioritise[0], String(s.quadrants.deprioritise), "Complex implementation with uncertain return"],
-    ], [22, 13, 65]));
+    body.push(h(tr("h_summary_reco"), HeadingLevel.HEADING_1, true));
+    body.push(para(tr("reco_summary_p", { n: s.retained, a: s.activities, vt: data.settings.value_threshold, ft: data.settings.feasibility_threshold })));
+    body.push(table([tr("col_priority"), tr("col_findings"), tr("col_what_it_means")],
+      Object.keys(QUAD).map((q) => [tr.quadrant(q), String(s.quadrants[q]), tr(`qd_${q}`)]), [22, 13, 65]));
     const top = data.top_items.map((i) => ids.get(String(i))).filter(Boolean);
     if (top.length) {
-      body.push(h("Top items", HeadingLevel.HEADING_2));
-      body.push(table(["#", "ID", "Activity", "Action", "Score"], top.map((f) => [String(f.rank), String(f.id), f.activity || "", f.name || "", num(f.score)]), [6, 8, 24, 50, 12]));
+      body.push(h(tr("h_top_items"), HeadingLevel.HEADING_2));
+      body.push(table(["#", tr("col_id"), tr("col_activity"), tr("col_action"), tr("col_score")], top.map((f) => [String(f.rank), String(f.id), f.activity || "", f.name || "", num(f.score)]), [6, 8, 24, 50, 12]));
     }
 
     // Operational observations
-    body.push(h("Operational Observations", HeadingLevel.HEADING_1, true));
+    body.push(h(tr("h_observations"), HeadingLevel.HEADING_1, true));
     for (const [activity, fs] of byActivity(data)) {
       body.push(h(activity, HeadingLevel.HEADING_2));
       for (const f of fs) {
         body.push(h(`${f.id} – ${f.name}`, HeadingLevel.HEADING_3));
-        if (f.issue) body.push(label("Observation", f.issue));
-        if (f.solution) body.push(label("Proposed solution", f.solution));
-        body.push(f.recommendation ? label("Manhattan recommendation", f.recommendation)
-          : new Paragraph({ children: [run("Manhattan recommendation: to be written.", { highlight: "yellow" })] }));
-        body.push(table(["Expected value", "Feasibility", "Score", "Complexity", "Gain", "Priority"],
-          [[num(f.expected_value), num(f.feasibility), num(f.score), f.complexity || "–", f.gain || "–", f.quadrant ? QUAD[f.quadrant][0] : "–"]]));
+        if (f.issue) body.push(label(tr("observation"), f.issue));
+        if (f.solution) body.push(label(tr("proposed_solution"), f.solution));
+        body.push(f.recommendation ? label(tr("h_reco"), f.recommendation)
+          : new Paragraph({ children: [run(`[${tr("ph_reco")}]`, { highlight: "yellow" })] }));
+        body.push(table([tr("col_expected_value"), tr("col_feasibility"), tr("col_score"), tr("col_complexity"), tr("col_gain"), tr("col_priority")],
+          [[num(f.expected_value), num(f.feasibility), num(f.score), tr.level(f.complexity) || "–", tr.level(f.gain, "gain") || "–", f.quadrant ? tr.quadrant(f.quadrant) : "–"]]));
         body.push(new Paragraph({ spacing: { after: 160 }, children: [] }));
       }
     }
 
     // Conclusion
-    body.push(h("Conclusion", HeadingLevel.HEADING_1, true));
+    body.push(h(tr("h_conclusion"), HeadingLevel.HEADING_1, true));
     const concl = lines(doc.conclusion);
     if (concl.length) concl.forEach((t) => body.push(para(t)));
-    else body.push(new Paragraph({ children: [run("Write the overall conclusion: key messages, main levers and proposed next steps.", { highlight: "yellow" })] }));
+    else body.push(new Paragraph({ children: [run(`[${tr("ph_conclusion")}]`, { highlight: "yellow" })] }));
 
     // Appendix: discarded items (client-facing issue only, never internal comments)
     const discarded = data.findings.filter((f) => f.discarded);
     if (m.include_discarded && discarded.length) {
-      body.push(h("Appendix – Discarded items", HeadingLevel.HEADING_1, true));
-      body.push(table(["ID", "Activity", "Name", "Issue"], discarded.map((f) => [String(f.id), f.activity || "", f.name || "", f.issue || ""]), [8, 20, 30, 42]));
+      body.push(h(tr("h_appendix"), HeadingLevel.HEADING_1, true));
+      body.push(table([tr("col_id"), tr("col_activity"), tr("col_name"), tr("col_issue")], discarded.map((f) => [String(f.id), f.activity || "", f.name || "", f.issue || ""]), [8, 20, 30, 42]));
     }
 
     const file = new Document({
-      creator: "Manhattan Associates", title: `Performance Analysis Review – ${m.client} ${m.site}`,
-      styles: { default: { document: { run: { font: "Calibri", size: 21 } } } },
+      creator: "Manhattan Associates", title: `${tr("doc_title")} – ${m.client} ${m.site}`,
+      styles: { default: { document: { run: { font: "Calibri", size: 21, language: { value: tr.tag } } } } },
       sections: [{ properties: { page: { margin: { top: 1200, bottom: 1200, left: 1200, right: 1200 } } }, children: body }],
     });
-    return { filename: fileStem(doc) + " - Report.docx", blob: await Packer.toBlob(file) };
+    return { filename: `${fileStem(doc)} - ${tr("file_report")}.docx`, blob: await Packer.toBlob(file) };
   }
 
   // ---- PowerPoint deck --------------------------------------------------------
@@ -231,7 +228,7 @@
     const p = new P();
     p.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 in
     p.title = `PAR – ${doc.meta.client} ${doc.meta.site}`;
-    const m = doc.meta, s = data.summary, ids = byIdMap(data);
+    const m = doc.meta, s = data.summary, ids = byIdMap(data), tr = trOf(doc);
     const W = 13.33, font = "Calibri";
     const rich = (t, o = {}) => splitBold(t).map(([text, b]) => ({ text, options: { bold: b, ...o } }));
     function slide(title) {
@@ -239,20 +236,20 @@
       sl.background = { color: "FFFFFF" };
       sl.addShape(p.ShapeType.rect, { x: 0, y: 0, w: W, h: 0.12, fill: { color: NAVY }, line: { color: NAVY } });
       sl.addText(title, { x: 0.5, y: 0.3, w: W - 1, h: 0.7, fontFace: font, fontSize: 26, bold: true, color: NAVY });
-      sl.addText(`${m.client} · ${m.site} · Performance Analysis Review`, { x: 0.5, y: 7.0, w: 9, h: 0.3, fontFace: font, fontSize: 9, color: GREY });
+      sl.addText(tr("deck_footer", { client: m.client, site: m.site }), { x: 0.5, y: 7.0, w: 9, h: 0.3, fontFace: font, fontSize: 9, color: GREY });
       return sl;
     }
 
     // Title
     const t = p.addSlide();
     t.background = { color: NAVY };
-    t.addText("Performance Analysis Review", { x: 0.7, y: 2.2, w: 11, h: 1, fontFace: font, fontSize: 40, bold: true, color: "FFFFFF" });
+    t.addText(tr("doc_title"), { x: 0.7, y: 2.2, w: 11, h: 1, fontFace: font, fontSize: 40, bold: true, color: "FFFFFF" });
     t.addText(`${m.client} – ${m.site}`, { x: 0.7, y: 3.2, w: 11, h: 0.7, fontFace: font, fontSize: 24, color: "9DC3E6" });
-    t.addText([m.visit_period && `Visit: ${m.visit_period}`, [m.author, m.date].filter(Boolean).join(" · ")].filter(Boolean).join("\n"),
+    t.addText([m.visit_period && tr("visit", { period: m.visit_period }), [m.author, m.date].filter(Boolean).join(" · ")].filter(Boolean).join("\n"),
       { x: 0.7, y: 4.2, w: 11, h: 0.9, fontFace: font, fontSize: 14, color: "FFFFFF" });
 
     // Executive summary
-    const ex = slide("Executive Summary");
+    const ex = slide(tr("h_exec"));
     const pts = doc.summary.length ? doc.summary : data.draft_executive_summary;
     ex.addText(pts.map((x) => rich(x, { breakLine: false })).flatMap((runs, i) => {
       runs[0].options.bullet = { code: "25A0" }; runs[runs.length - 1].options.breakLine = i < pts.length - 1;
@@ -260,7 +257,7 @@
     }), { x: 0.6, y: 1.2, w: W - 1.2, h: 5.6, fontFace: font, fontSize: 16, color: INK, valign: "top", paraSpaceAfter: 10 });
 
     // Priority matrix, drawn as shapes (editable, renders the same everywhere)
-    const mx = slide("Priority matrix");
+    const mx = slide(tr("s_matrix"));
     const kept = data.findings.filter((f) => !f.discarded && f.expected_value !== null && f.feasibility !== null);
     const maxV = Math.max(20, ...kept.map((f) => f.expected_value)), maxF = Math.max(20, ...kept.map((f) => f.feasibility));
     const box = { x: 1.2, y: 1.2, w: 7.4, h: 5.4 };
@@ -268,37 +265,37 @@
     mx.addShape(p.ShapeType.rect, { ...box, fill: { color: "FFFFFF" }, line: { color: "A6A6A6", width: 1 } });
     mx.addShape(p.ShapeType.line, { x: X(data.settings.feasibility_threshold), y: box.y, w: 0, h: box.h, line: { color: "A6A6A6", dashType: "dash" } });
     mx.addShape(p.ShapeType.line, { x: box.x, y: Y(data.settings.value_threshold), w: box.w, h: 0, line: { color: "A6A6A6", dashType: "dash" } });
-    mx.addText("Feasibility →", { x: box.x, y: box.y + box.h + 0.05, w: box.w, h: 0.3, fontFace: font, fontSize: 11, color: GREY, align: "center" });
-    mx.addText("Expected value →", { x: 0.2, y: box.y + box.h / 2 - 0.15, w: 1.6, h: 0.3, fontFace: font, fontSize: 11, color: GREY, rotate: 270 });
+    mx.addText(`${tr("col_feasibility")} →`, { x: box.x, y: box.y + box.h + 0.05, w: box.w, h: 0.3, fontFace: font, fontSize: 11, color: GREY, align: "center" });
+    mx.addText(`${tr("col_expected_value")} →`, { x: 0.2, y: box.y + box.h / 2 - 0.15, w: 1.6, h: 0.3, fontFace: font, fontSize: 11, color: GREY, rotate: 270 });
     for (const f of kept) {
       const c = QUAD[f.quadrant][1];
       mx.addShape(p.ShapeType.ellipse, { x: X(f.feasibility) - 0.08, y: Y(f.expected_value) - 0.08, w: 0.16, h: 0.16, fill: { color: c }, line: { color: "FFFFFF", width: 0.5 } });
       mx.addText(String(f.id), { x: X(f.feasibility) + 0.08, y: Y(f.expected_value) - 0.14, w: 0.5, h: 0.24, fontFace: font, fontSize: 8, color: INK });
     }
-    mx.addText(Object.entries(QUAD).map(([q, [name, c]], i) => ({ text: `● ${name} (${s.quadrants[q]})`, options: { color: c, bold: true, breakLine: i < 3 } })),
+    mx.addText(Object.entries(QUAD).map(([q, [, c]], i) => ({ text: `● ${tr.quadrant(q)} (${s.quadrants[q]})`, options: { color: c, bold: true, breakLine: i < 3 } })),
       { x: 9.1, y: 1.4, w: 3.8, h: 2, fontFace: font, fontSize: 14, valign: "top", paraSpaceAfter: 8 });
-    mx.addText(`Thresholds: expected value ≥ ${data.settings.value_threshold}, feasibility ≥ ${data.settings.feasibility_threshold}.`,
+    mx.addText(tr("thresholds_short", { vt: data.settings.value_threshold, ft: data.settings.feasibility_threshold }),
       { x: 9.1, y: 3.6, w: 3.8, h: 0.8, fontFace: font, fontSize: 11, color: GREY, valign: "top" });
 
     // Breakdown
-    const br = slide("Findings by activity and solution type");
+    const br = slide(tr("s_breakdown"));
     const bar = (rows, x, title, color) => br.addChart(p.ChartType.bar, [{ name: title, labels: rows.map((r) => r[0]), values: rows.map((r) => r[1]) }], {
       x, y: 1.2, w: 6.1, h: 5.5, barDir: "bar", chartColors: [color], catAxisLabelFontSize: 10, valAxisLabelFontSize: 9,
       showValue: true, dataLabelFontSize: 9, valAxisHidden: true, showTitle: true, title, titleFontSize: 13, titleColor: NAVY, catAxisOrientation: "maxMin", valGridLine: { style: "none" },
     });
-    bar(s.by_activity.slice(0, 12), 0.4, "By activity", ACCENT);
-    bar(s.by_solution_type.slice(0, 12), 6.8, "By solution type", "2A78D6");
+    bar(s.by_activity.slice(0, 12), 0.4, tr("by_activity"), ACCENT);
+    bar(s.by_solution_type.slice(0, 12), 6.8, tr("by_type"), "2A78D6");
 
     // Quick wins
-    const qw = slide("Quick wins");
+    const qw = slide(tr("s_quick_wins"));
     const quick = data.findings.filter((f) => !f.discarded && f.quadrant === "quick_win").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    qw.addText(rich(`**${quick.length} items** are prioritised in a first batch of actions: simple to implement, with an immediate impact on productivity and the user experience.`),
+    qw.addText(rich(tr("qw_intro", { n: quick.length })),
       { x: 0.6, y: 1.1, w: W - 1.2, h: 0.8, fontFace: font, fontSize: 15, color: INK });
     if (quick.length) {
-      const head = ["ID", "Activity", "Action", "Score"].map((x) => ({ text: x, options: { bold: true, color: "FFFFFF", fill: { color: ACCENT } } }));
+      const head = [tr("col_id"), tr("col_activity"), tr("col_action"), tr("col_score")].map((x) => ({ text: x, options: { bold: true, color: "FFFFFF", fill: { color: ACCENT } } }));
       qw.addTable([head, ...quick.slice(0, 12).map((f) => [String(f.id), f.activity || "", f.name || "", num(f.score)])],
         { x: 0.6, y: 2.0, w: W - 1.2, colW: [0.8, 3.0, 7.13, 1.2], fontFace: font, fontSize: 11, color: INK, border: { type: "solid", pt: 0.5, color: "BFBFBF" }, autoPage: false });
-      if (quick.length > 12) qw.addText(`+ ${quick.length - 12} more in the report`, { x: 0.6, y: 6.6, w: 6, h: 0.3, fontFace: font, fontSize: 11, color: GREY });
+      if (quick.length > 12) qw.addText(tr("more_in_report", { n: quick.length - 12 }), { x: 0.6, y: 6.6, w: 6, h: 0.3, fontFace: font, fontSize: 11, color: GREY });
     }
 
     // One slide per top item, in the source deck's format (same grid as par_generator/slides.py)
@@ -311,12 +308,12 @@
       const row = (bodyY - top - 2 * band) / 2, LIGHT = "F2F2F2", BORDER = { color: "BFBFBF", width: 0.75 };
       // Header
       sl.addShape(p.ShapeType.rect, { x: 0, y: 0, w: rightX + rightW, h: top, fill: { color: "EDEDED" }, line: { color: "EDEDED" } });
-      sl.addText("Top Items", { x: 0.55, y: 0.18, w: 7.5, h: 0.75, fontFace: font, fontSize: 40, bold: true, color: "111111", margin: 0 });
+      sl.addText(tr("top_items"), { x: 0.55, y: 0.18, w: 7.5, h: 0.75, fontFace: font, fontSize: 40, bold: true, color: "111111", margin: 0 });
       sl.addText(`${f.rank}. ${f.name}`, { x: 0.55, y: 0.92, w: 8.2, h: 0.5, fontFace: font, fontSize: 22, color: "7F7F7F", margin: 0, fit: "shrink" });
       if (f.owner) sl.addText(f.owner, { x: W - 1.2, y: 0.05, w: 1.05, h: 0.4, fontFace: font, fontSize: 16, bold: true, color: "111111", align: "right" });
       if (f.status) {
         const done = /^(done|closed|implemented|live|activated|fait|deployed|in production)$/i.test(f.status);
-        sl.addText(done ? "Done" : f.status, { shape: p.ShapeType.roundRect, x: 9.9, y: 0.52, w: 1.6, h: 0.47, rotate: 15, rectRadius: 0.06,
+        sl.addText(done ? tr("done") : f.status, { shape: p.ShapeType.roundRect, x: 9.9, y: 0.52, w: 1.6, h: 0.47, rotate: 15, rectRadius: 0.06,
           fill: { color: done ? "70AD47" : "ED7D31" }, line: { color: done ? "507E32" : "B4581F", width: 1 },
           fontFace: font, fontSize: done ? 16 : 11, bold: true, color: "FFFFFF", align: "center", valign: "middle" });
         if (done) {
@@ -330,26 +327,26 @@
         sl.addShape(p.ShapeType.rect, { x, y, w, h, fill: { color: LIGHT }, line: BORDER });
       const bandBox = (text, x, y, w, align = "center") => sl.addText(text, { x, y, w, h: band, fill: { color: ACCENT }, line: { color: ACCENT },
         fontFace: font, fontSize: 16, bold: true, color: "FFFFFF", align, valign: "middle", margin: [8, 8, 0, 0] }); // [left, right, bottom, top]
-      bandBox("Process", 0, top, leftW);
+      bandBox(tr("band_process"), 0, top, leftW);
       sl.addText(f.activity || "", { x: 0, y: top + band, w: leftW, h: row, fontFace: font, fontSize: 16, color: INK, align: "center", valign: "middle" });
-      bandBox("Type", 0, top + band + row, leftW);
+      bandBox(tr("band_type"), 0, top + band + row, leftW);
       sl.addText(f.solution_type || "–", { x: 0, y: top + 2 * band + row, w: leftW, h: row, fontFace: font, fontSize: 16, color: INK, align: "center", valign: "middle" });
-      bandBox("Issue", leftW, top, midW, "left");
+      bandBox(tr("band_issue"), leftW, top, midW, "left");
       const isz = (n) => (n <= 160 ? 15 : n <= 300 ? 13 : n <= 480 ? 12 : 11);
       sl.addText(f.issue || "", { x: leftW + 0.07, y: top + band, w: midW - 0.14, h: bodyY - top - band, fontFace: font, fontSize: isz((f.issue || "").length), color: INK, valign: "middle" });
 
       // Recommendation ("- " lines become bullets)
-      bandBox("Recommendation", 0, bodyY, leftW + midW, "left");
+      bandBox(tr("band_reco"), 0, bodyY, leftW + midW, "left");
       const reco = f.recommendation || "";
       const rsz = reco.length <= 420 ? 15 : reco.length <= 700 ? 14 : reco.length <= 1000 ? 12 : 11;
       const recoRuns = reco ? reco.split("\n").map((line, i, all) => {
         const m = line.match(/^\s*[-•–]\s+(.*)$/);
         return { text: m ? m[1] : line, options: { bullet: m ? { indent: 18 } : false, breakLine: i < all.length - 1 } };
-      }) : [{ text: (f.solution ? `Solution: ${f.solution}\n` : "") + "[Write the Manhattan recommendation]", options: { highlight: "FFFF00" } }];
+      }) : [{ text: (f.solution ? `${tr("solution_label")}${tr.sep}${f.solution}\n` : "") + `[${tr("ph_reco")}]`, options: { highlight: "FFFF00" } }];
       sl.addText(recoRuns, { x: 0.05, y: bodyY + band + 0.05, w: leftW + midW - 0.1, h: bottom - bodyY - band - 0.1, fontFace: font, fontSize: rsz, color: INK, valign: "top" });
 
       // Feasibility gauge: three blue segments, Complex (left) to Simple (right), needle at the score
-      bandBox("Feasibility Score", rightX, top, rightW);
+      bandBox(tr("band_feas"), rightX, top, rightW);
       const gw = 1.7, gx = rightX + (rightW - gw) / 2, gy = top + band + 0.14, cx = gx + gw / 2, cy = gy + gw / 2, r = gw * 0.47;
       ["D6DFF1", "8FAADC", "4472C4"].forEach((c, i) => sl.addShape(p.ShapeType.blockArc, { x: gx, y: gy, w: gw, h: gw,
         angleRange: [180 + 60 * i, (180 + 60 * (i + 1)) % 360], arcThicknessRatio: 0.4, fill: { color: c }, line: { color: "FFFFFF", width: 1.5 } }));
@@ -360,37 +357,38 @@
         if (ex >= cx) sl.addShape(p.ShapeType.line, { x: cx, y: ey, w: ex - cx, h: cy - ey, flipV: true, line: { ...needle, endArrowType: "triangle" } });
         else sl.addShape(p.ShapeType.line, { x: ex, y: ey, w: cx - ex, h: cy - ey, line: { ...needle, beginArrowType: "triangle" } });
       }
-      sl.addText("Complex", { x: gx - 1.1, y: cy - 0.33, w: 1.1, h: 0.3, fontFace: font, fontSize: 12, color: INK, align: "right" });
-      sl.addText("Simple", { x: gx + gw, y: cy - 0.33, w: 1.1, h: 0.3, fontFace: font, fontSize: 12, color: INK });
-      const note = f.feasibility_note || (f.complexity ? `Complexity: ${f.complexity}` : "Complexity to be assessed");
+      sl.addText(tr("complex"), { x: gx - 1.1, y: cy - 0.33, w: 1.1, h: 0.3, fontFace: font, fontSize: 12, color: INK, align: "right" });
+      sl.addText(tr("simple"), { x: gx + gw, y: cy - 0.33, w: 1.1, h: 0.3, fontFace: font, fontSize: 12, color: INK });
+      const note = f.feasibility_note || (f.complexity ? tr("complexity_note", { c: tr.level(f.complexity) }) : tr("complexity_tba"));
       sl.addText([{ text: note, options: { bullet: { indent: 14 } } }], { x: rightX + 0.07, y: cy + 0.1, w: rightW - 0.14, h: bodyY - cy - 0.12, fontFace: font, fontSize: 12, color: INK, valign: "top" });
 
       // Expected value: headline (e.g. "0.3 FTE", unit on grey) and bullets
-      bandBox("Expected Value", rightX, bodyY, rightW);
-      const head = f.expected_gain || (f.gain ? `${f.gain} gain` : "To be quantified");
+      bandBox(tr("band_value"), rightX, bodyY, rightW);
+      const head = f.expected_gain || (f.gain ? tr("gain_head", { g: tr.lang === "en" ? f.gain : tr.level(f.gain, "gain").toLowerCase() }) : tr("to_quantify"));
       const hm = head.match(/^\s*([~≈<>]?\s*[\d.,]+\s*%?)\s*(.+)$/);
       const hsz = head.length < 18 ? 24 : 18;
       sl.addText(hm ? [{ text: hm[1].trim() + " ", options: {} }, { text: hm[2], options: { color: "404040", highlight: "D9D9D9" } }] : [{ text: head, options: {} }],
         { x: rightX, y: bodyY + band + 0.05, w: rightW, h: 0.57, fontFace: font, fontSize: hsz, bold: true, color: "111111", align: "center", valign: "middle" });
       const details = lines(f.gain_details);
       if (!details.length) {
-        if (f.expected_value !== null && f.expected_value !== undefined) details.push(`Value score ${num(f.expected_value)}/20`);
-        if (f.score !== null && f.score !== undefined) details.push(`Priority score ${num(f.score)}`);
-        const flags = [["retrofit", f.retrofit], ["global adoption", f.global_adoption]].filter(([, v]) => String(v || "").toLowerCase() === "yes").map(([k]) => k);
-        if (flags.length) details.push("Eligible for " + flags.join(" and "));
+        if (f.expected_value !== null && f.expected_value !== undefined) details.push(tr("value_score", { v: num(f.expected_value), max: 20 }));
+        if (f.score !== null && f.score !== undefined) details.push(tr("priority_score", { s: num(f.score) }));
+        const flags = [[tr("flag_retrofit"), f.retrofit], [tr("flag_global"), f.global_adoption]].filter(([, v]) => String(v || "").toLowerCase() === "yes").map(([k]) => k);
+        if (flags.length) details.push(tr("eligible", { flags: tr.join(flags) }));
       }
-      if (f.client_comment) details.push(`${m.client} feedback: ${f.client_comment}`);
+      if (f.client_comment) details.push(tr("feedback", { client: m.client, text: f.client_comment }));
       if (details.length) sl.addText(details.map((d, i) => ({ text: d.replace(/^\s*[-•–]\s*/, ""), options: { bullet: { indent: 14 }, breakLine: i < details.length - 1 } })),
         { x: rightX + 0.07, y: bodyY + band + 0.66, w: rightW - 0.14, h: bottom - bodyY - band - 0.72, fontFace: font, fontSize: details.join("").length < 220 ? 12 : 11, color: INK, valign: "top" });
     }
 
     // Conclusion
-    const co = slide("Conclusion and next steps");
+    const co = slide(tr("s_conclusion"));
     const cl = lines(doc.conclusion);
-    co.addText(cl.length ? cl.map((x, i) => ({ text: x, options: { breakLine: i < cl.length - 1 } })) : [{ text: "Write the conclusion on the Report & export tab.", options: { color: GREY, italic: true } }],
+    co.addText(cl.length ? cl.map((x, i) => ({ text: x, options: { breakLine: i < cl.length - 1 } })) : [{ text: tr("ph_conclusion_deck"), options: { color: GREY, italic: true } }],
       { x: 0.6, y: 1.2, w: W - 1.2, h: 5.6, fontFace: font, fontSize: 16, color: INK, valign: "top", paraSpaceAfter: 12 });
 
-    return { filename: fileStem(doc) + " - Restitution.pptx", blob: await p.write({ outputType: "blob" }) };
+    p.lang = tr.tag;
+    return { filename: `${fileStem(doc)} - ${tr("file_deck")}.pptx`, blob: await p.write({ outputType: "blob" }) };
   }
 
   // ---- the researcher (an MCP server on the consultant's PC, reached through the Claude app) ----

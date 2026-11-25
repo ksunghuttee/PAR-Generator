@@ -22,6 +22,7 @@ TEMPLATE = Path(__file__).parent / "templates" / "report_template.docx"
 class _Writer:
     def __init__(self, data: PARData, meta: ReportMeta):
         self.data, self.meta = data, meta
+        self.tr = meta.tr
         self.doc = Document(TEMPLATE)
         sec = self.doc.sections[0]
         self.width = sec.page_width - sec.left_margin - sec.right_margin
@@ -108,6 +109,15 @@ class _Writer:
         self.doc.add_paragraph()
         return t
 
+    def _set_language(self):
+        """Spelling and grammar checks in the deliverable's language."""
+        rpr = self.doc.styles.element.find(qn("w:docDefaults")).find(qn("w:rPrDefault")).find(qn("w:rPr"))
+        lang = rpr.find(qn("w:lang"))
+        if lang is None:
+            lang = OxmlElement("w:lang")
+            rpr.append(lang)
+        lang.set(qn("w:val"), self.tr.tag)
+
     def page_break(self):
         self.doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
@@ -117,7 +127,7 @@ class _Writer:
         cover, toc = body[0], body[1]
         # Title block on the cover page (white text over the dark cover graphic).
         lines = [
-            ("Performance Analysis Review", 30, True),
+            (self.tr("doc_title"), 30, True),
             (f"{self.meta.client} – {self.meta.site}", 18, False),
             (self.meta.date, 12, False),
         ]
@@ -137,9 +147,13 @@ class _Writer:
             cover.addprevious(para._p)
 
         # Table of contents field; Word refreshes it on open (updateFields).
+        for t in toc.iter(qn("w:t")):  # the template's "Table of Contents" heading
+            if t.text and t.text.strip() == "Table of Contents":
+                t.text = self.tr("toc_title")
+        self._set_language()
         placeholder = toc.find(qn("w:sdtContent"))[-1]
         for kind, text in (("begin", None), ("instr", 'TOC \\o "1-3" \\h \\z \\u'), ("separate", None),
-                           ("text", "Right-click here and choose Update Field to build the table of contents."),
+                           ("text", self.tr("toc_hint")),
                            ("end", None)):
             r = OxmlElement("w:r")
             if kind in ("begin", "separate", "end"):
@@ -166,115 +180,97 @@ class _Writer:
         toc.addnext(br_p)
 
     def executive_summary(self):
-        self.h("Executive Summary", 1)
+        self.h(self.tr("h_exec"), 1)
         for line in self.meta.executive_summary:
             self.p(line).paragraph_format.space_after = Pt(6)
 
     def introduction(self):
-        m = self.meta
-        self.h("Introduction", 1)
-        self.h("Context", 2)
-        self.p(
-            f"This document summarizes the conclusions of a PAR (Performance Analysis Review) conducted at the "
-            f"{m.site} site{' (' + m.visit_period + ')' if m.visit_period else ''}. This PAR was initiated to identify "
-            "the sources of operational productivity and to define possible approaches to recover and exceed this "
-            "productivity."
-        )
-        self.p(
-            "The PAR was carried out through on-site reviews of the various activities, combining interviews with "
-            "operational staff and job shadowing, followed by data analysis to confirm and assess the anticipated gains."
-        )
-        self.p("The purpose of this document is to organize and categorize the observations to facilitate their "
-               "prioritization and implementation.")
-        self.p("It is assumed that the readers of this document are familiar with current operations; therefore, it "
-               "refers—without defining them—to concepts and terminology specific to the operations.")
-        self.h("DC General Description", 2)
+        m, tr = self.meta, self.tr
+        self.h(tr("h_intro"), 1)
+        self.h(tr("h_context"), 2)
+        self.p(tr("intro_p1", site=m.site, period=f" ({m.visit_period})" if m.visit_period else ""))
+        self.p(tr("intro_p2"))
+        self.p(tr("intro_p3"))
+        self.p(tr("intro_p4"))
+        self.h(tr("h_dc"), 2)
         self.h(m.site, 3)
-        self.placeholder("Describe the site: go-live date, size, business units / flows handled, key automation and "
-                         "integrated systems. Add a site layout picture.")
-        self.h("Operational flows", 3)
-        self.placeholder("Describe the inbound, internal and outbound flows as observed during the visit.")
+        self.placeholder(tr("ph_site"))
+        self.h(tr("h_flows"), 3)
+        self.placeholder(tr("ph_flows"))
 
     def conclusion(self):
-        self.h("Conclusion", 1, new_page=True)
+        self.h(self.tr("h_conclusion"), 1, new_page=True)
         paras = [p.strip() for p in (self.meta.conclusion or "").split("\n") if p.strip()]
         if not paras:
-            self.placeholder("Write the overall conclusion: key messages, main levers and proposed next steps.")
+            self.placeholder(self.tr("ph_conclusion"))
         for text in paras:
             self.p(text).paragraph_format.space_after = Pt(6)
 
     def summary_of_recommendations(self):
-        d, s = self.data, self.data.summary()
-        self.h("Summary of Recommendations", 1, new_page=True)
-        self.p(
-            f"The review identified **{s['retained']} improvement opportunities** across {s['activities']} activities"
-            + (f" ({s['discarded']} further items were reviewed and not retained)." if s["discarded"] else ".")
-        )
-        self.h("Breakdown by solution type", 2)
-        self.image(charts.bar_counts(s["by_solution_type"]), 0.9)
-        self.h("Breakdown by activity", 2)
-        self.image(charts.bar_counts(s["by_activity"]), 0.9)
+        d, s, tr, lang = self.data, self.data.summary(), self.tr, self.meta.language
+        self.h(tr("h_summary_reco"), 1, new_page=True)
+        self.p(tr("reco_intro", n=s["retained"], a=s["activities"])
+               + (tr("reco_intro_discarded", d=s["discarded"]) if s["discarded"] else "."))
+        self.h(tr("h_by_type"), 2)
+        self.image(charts.bar_counts(s["by_solution_type"], language=lang), 0.9)
+        self.h(tr("h_by_activity"), 2)
+        self.image(charts.bar_counts(s["by_activity"], language=lang), 0.9)
 
-        self.h("Prioritisation", 2)
+        self.h(tr("h_prioritisation"), 2)
         st = d.settings
-        self.p(
-            "Each action is scored on its **expected value** and its **feasibility** (the higher, the easier to "
-            f"implement). Actions with an expected value of at least {st.value_threshold:g} and a feasibility of at least "
-            f"{st.feasibility_threshold:g} are the quick wins."
-        )
+        self.p(tr("prio_p", vt=f"{st.value_threshold:g}", ft=f"{st.feasibility_threshold:g}"))
         if any(f.scores_estimated for f in d.retained):
-            self.caption("Some scores were estimated from the qualitative Gain and Complexity ratings.")
-        self.image(charts.priority_matrix(d), 0.95)
-        rows = [[QUADRANTS[q], len(d.in_quadrant(q)), desc] for q, desc in (
-            ("quick_win", "High value, easy to implement – first batch of actions"),
-            ("strategic", "High value, more analysis and workload to implement"),
-            ("filler", "Easy to implement, lower expected value"),
-            ("deprioritise", "Complex implementation with uncertain return"),
-        )]
-        self.table(["Category", "Actions", "Meaning"], rows, [3.5, 2, 11])
+            self.caption(tr("caption_estimated"))
+        self.image(charts.priority_matrix(d, language=lang), 0.95)
+        rows = [[tr.quadrant(q), len(d.in_quadrant(q)), tr(f"qd_{q}")] for q in QUADRANTS]
+        self.table([tr("col_category"), tr("col_actions"), tr("col_meaning")], rows, [3.5, 2, 11])
 
         top = d.top_items()
         if top:
-            self.h(f"Top {len(top)} actions", 2)
+            self.h(tr("h_top", n=len(top)), 2)
             self.table(
-                ["#", "ID", "Activity", "Action", "Value", "Feasibility", "Score"],
+                ["#", tr("col_id"), tr("col_activity"), tr("col_action"), tr("col_value"), tr("col_feasibility"),
+                 tr("col_score")],
                 [[f.rank, f.id, f.activity, f.name, f.expected_value, f.feasibility, f.score] for f in top],
                 [0.8, 1.0, 3.0, 7.5, 1.4, 1.8, 1.4],
             )
 
     def finding_block(self, f: Finding, level: int):
         """level = heading level of the finding title."""
+        tr = self.tr
         self.h(f.name, level)
-        meta_bits = [f"ID {f.id}"]
-        for label, val in (("Type", f.solution_type), ("Gain", f.gain), ("Retrofit", f.retrofit),
-                           ("Global adoption", f.global_adoption)):
+        meta_bits = [f"{tr('col_id')} {f.id}"]
+        sep = " : " if tr.lang == "fr" else ": "
+        for label, val in ((tr("lbl_type"), f.solution_type), (tr("lbl_gain"), tr.level(f.gain, "gain")),
+                           (tr("lbl_retrofit"), tr.yes_no(f.retrofit)), (tr("lbl_global"), tr.yes_no(f.global_adoption))):
             if val:
-                meta_bits.append(f"{label}: {val}")
+                meta_bits.append(f"{label}{sep}{val}")
         if f.rank:
-            meta_bits.append(f"Top action #{f.rank}")
+            meta_bits.append(tr("top_action", n=f.rank))
         self.p("  ·  ".join(meta_bits), color=GREY, size=8.5)
         sub = min(level + 1, 5)
-        self.h("Description", sub)
+        self.h(tr("h_description"), sub)
         if f.issue:
             self.p(f.issue)
         else:
-            self.placeholder("Describe the issue observed")
-        self.h("Solution(s)", sub)
+            self.placeholder(tr("ph_issue"))
+        self.h(tr("h_solutions"), sub)
         if f.solution:
             self.p(f.solution)
         else:
-            self.placeholder("Describe the proposed solution")
-        self.h(f"Complexity – {f.complexity or 'TBD'}", sub)
-        self.h("Manhattan Recommendation", sub)
+            self.placeholder(tr("ph_solution"))
+        self.h(tr("h_complexity", c=tr.level(f.complexity) or tr("tbd")), sub)
+        self.h(tr("h_reco"), sub)
         if f.recommendation:
             self.p(f.recommendation)
         else:
-            self.placeholder("Write the Manhattan recommendation")
+            self.placeholder(tr("ph_reco"))
         if f.client_comment:
-            self.p(f"{self.meta.client} feedback: {f.client_comment}", italic=True, color=GREY, size=8.5)
+            self.p(tr("feedback", client=self.meta.client, text=f.client_comment), italic=True, color=GREY, size=8.5)
 
     def observations(self):
-        self.h("Operational observations & Recommendations", 1, new_page=True)
+        tr = self.tr
+        self.h(tr("h_observations"), 1, new_page=True)
         for activity, items in self.data.by_activity().items():
             self.h(activity, 2)
             themes: dict[str, list[Finding]] = {}
@@ -288,10 +284,10 @@ class _Writer:
                 else:
                     for f in fs:
                         self.finding_block(f, 3)
-            self.h("Recap", 3)
+            self.h(tr("h_recap"), 3)
             self.table(
-                ["ID", "Name", "Solution Type", "Complexity", "Gain"],
-                [[f.id, f.name, f.solution_type, f.complexity, f.gain] for f in items],
+                [tr("col_id"), tr("col_name"), tr("col_solution_type"), tr("col_complexity"), tr("col_gain")],
+                [[f.id, f.name, f.solution_type, tr.level(f.complexity), tr.level(f.gain, "gain")] for f in items],
                 [1.2, 8.0, 4.0, 2.0, 1.6],
             )
 
@@ -299,10 +295,11 @@ class _Writer:
         discarded = self.data.discarded
         if not (self.meta.include_discarded and discarded):
             return
-        self.h("Appendix – Items reviewed and not retained", 1, new_page=True)
-        self.p("The following points were analysed during the review and not retained as actions.")
+        tr = self.tr
+        self.h(tr("h_appendix"), 1, new_page=True)
+        self.p(tr("appendix_p"))
         self.table(
-            ["ID", "Activity", "Name", "Issue"],
+            [tr("col_id"), tr("col_activity"), tr("col_name"), tr("col_issue")],
             [[f.id, f.activity, f.name, f.issue] for f in discarded],  # never the internal comments
             [1.2, 3.0, 6.0, 6.6],
         )
@@ -316,7 +313,8 @@ class _Writer:
         self.observations()
         self.appendix()
         cp = self.doc.core_properties
-        cp.title = f"Performance Analysis Review – {self.meta.client} {self.meta.site}"
+        cp.title = f"{self.tr('doc_title')} – {self.meta.client} {self.meta.site}"
+        cp.language = self.tr.tag
         cp.author = self.meta.author or "Manhattan Associates"
         buf = io.BytesIO()
         self.doc.save(buf)
