@@ -38,7 +38,7 @@
     { key: "reco", label: "Reco.", w: 76 },
     // Shown instead of "reco" when the toolbar's Reco. toggle is on "Full text".
     { key: "recommendation", label: "Manhattan recommendation", w: 380, edit: "text", wrap: true },
-    { key: "research", label: "Researcher", w: 280, edit: "text", internal: true }, // MCP answers: internal
+    { key: "research", label: "Researcher notes", w: 280, edit: "text", internal: true }, // MCP answers: internal
     { key: "gain_details", label: "Gain details", w: 240, edit: "text", ph: "Add…" },
     { key: "feasibility_note", label: "Feasibility note", w: 200, edit: "text", ph: "Add…" },
     { key: "activity", label: "Activity", w: 140 },
@@ -297,7 +297,9 @@
       case "research": {
         if (state.researching.has(String(f.id))) return `<td ${attrs.replace('class="', 'class="is-asking ')}><span class="cp-ask-dots" aria-hidden="true"><i></i><i></i><i></i></span> Asking the researcher…</td>`;
         if (!f.research) return `<td ${attrs}></td>`;
-        return `<td ${attrs} title="${esc(f.research.slice(0, 900))}">${esc(f.research.replace(/\s*\n\s*/g, " · "))}</td>`;
+        const latest = f.research.split("\n").filter((l) => l.trim() && !/^— .+ · /.test(l) && !/^Q: /.test(l)).join(" · ");
+        const n = (f.research.match(/^— .+ · /gm) || []).length;
+        return `<td ${attrs} title="${esc(f.research.slice(0, 900))}">${n > 1 ? `<span class="cp-reco">${n}×</span> ` : ""}${esc(latest)}</td>`;
       }
       case "expected_gain": case "gain_details": case "feasibility_note": {
         if (!f[c.key]) return `<td ${attrs}>${f.discarded || !f.rank ? "" : `<span class="cp-cell-empty">${esc(c.ph)}</span>`}</td>`;
@@ -864,12 +866,16 @@
       "What does Manhattan Active WM offer to address this (configuration, extensions, known issues or fixes), and how have other sites handled it?",
     ].filter((x) => x !== null && x !== undefined && x !== false).join("\n");
   }
-  let askFor = null;
+  let askFor = null, researcherName = "Researcher";
   // Who answers: the configured researcher MCP, or the dummy WM expert.
   (async () => {
     let name = LOCAL ? (LOCAL.researcher && LOCAL.researcher.name) : null;
     if (!LOCAL) { try { name = (await (await fetch("api/research")).json()).name; } catch (e) { /* keep the default */ } }
-    if (name) $("askWho").textContent = name;
+    if (name) { $("askWho").textContent = name; researcherName = name; }
+    if (LOCAL && LOCAL.researcher && LOCAL.researcher.dummy) {
+      $("askVia").hidden = false;
+      $("askVia").textContent = "In this preview the simulated WM expert answers. The real researcher (alvp-pso-flow.manhdev.com) is on Manhattan's internal network: the full app sends questions there when it runs on the office network or VPN.";
+    }
   })();
   function askResearcher(id) {
     const f = byId().get(String(id));
@@ -911,8 +917,13 @@
       const answer = await askTransport(question);
       delete state.askDrafts[id];
       snapshot();
+      // Log it: newest entry first, earlier answers kept below.
+      const stamp = new Date().toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" });
+      const entry = `— ${stamp} · ${researcherName}\nQ: ${question.replace(/\s*\n\s*/g, " ")}\n\n${answer.trim()}`;
+      const before = (byId().get(id) || {}).research;
+      const log = before ? `${entry}\n\n${before}` : entry;
       const prev = state.overrides[id] || {};
-      state.overrides[id] = { ...prev, research: answer.slice(0, 20000) };
+      state.overrides[id] = { ...prev, research: log.slice(0, 20000) };
       saveEdits();
       if (state.panel === id) state.panelReload = true;
       flash(`The researcher answered #${id} · Ctrl/Cmd+Z to undo`);

@@ -255,7 +255,8 @@
       </header>
       <label class="cp-field"><span class="cp-title-row">Question <button type="button" class="cp-link" id="askReset">Reset to the draft</button></span>
         <textarea class="cp-input cp-textarea" id="askQ" rows="9" aria-label="Question for the researcher"></textarea></label>
-      <p class="cp-source-note">Sent to <b id="askWho">the researcher</b>. Drafted from the finding: edit it as you like. The answer goes into the <b>Researcher</b> column, which is internal and never appears in the report or deck.<span id="askReplace" hidden> It replaces the current answer (Ctrl/Cmd+Z brings it back).</span></p>
+      <p class="cp-source-note">Sent to <b id="askWho">the researcher</b>. Drafted from the finding: edit it as you like. The answer is logged at the top of the finding's <b>Researcher notes</b>, with the date and your question: internal, never in the report or deck.<span id="askReplace" hidden> Earlier answers are kept below it.</span></p>
+      <p class="cp-source-note" id="askVia" hidden></p>
       <p class="cp-dialog-msg" id="askMsg" role="alert"></p>
       <footer class="cp-dialog-foot">
         <span class="cp-source-note">Ctrl/Cmd+Enter to send</span>

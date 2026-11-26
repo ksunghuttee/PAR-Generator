@@ -430,7 +430,7 @@ def test_researcher_mcp_client():
     from par_generator import research
 
     out = anyio.run(research.ask, "Why are waves slow?", _fake_researcher())
-    assert out == {"answer": "Use wave templates. (asked: Why are waves slow?)", "tool": "research"}
+    assert out == {"answer": "Use wave templates. (asked: Why are waves slow?)", "tool": "research", "source": "local"}
     with pytest.raises(research.ResearchError):
         anyio.run(research.ask, "  ", _fake_researcher())
 
@@ -440,8 +440,11 @@ def test_api_research(monkeypatch):
 
     c = TestClient(app)
     monkeypatch.delenv("PAR_RESEARCHER_MCP", raising=False)
+    st = c.get("/api/research").json()  # default: Manhattan's researcher MCP
+    assert st["dummy"] is False and st["name"] == "Researcher (alvp-pso-flow.manhdev.com)"
+    monkeypatch.setenv("PAR_RESEARCHER_MCP", "dummy")
     assert c.get("/api/research").json()["dummy"] is True
-    # Not configured: the dummy WM expert answers, through MCP like the real one
+    # dummy: the simulated WM expert answers, through MCP like the real one
     r = c.post("/api/research", data={"question": "Waves are released late and lines get deselected"})
     assert r.status_code == 200 and r.json()["tool"] == "ask_wm_expert"
     assert r.json()["answer"].startswith("WM Expert (simulated) · Wave planning")
@@ -532,3 +535,36 @@ def test_generate_language_api_and_prompt():
     m.language = "it"
     assert "Write, in Italian," in drafting.prompt(d, m)
     assert "British English" in drafting.prompt(d, _meta(d))
+
+
+def test_researcher_over_http(monkeypatch):
+    """The real transport (Streamable HTTP), against a local server; a page URL falls back to /mcp."""
+    import socket
+    import threading
+    import time
+
+    import anyio
+    import uvicorn
+
+    from par_generator import research, wm_expert
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    app_ = wm_expert.server().streamable_http_app(streamable_http_path="/researcher/mcp")
+    srv = uvicorn.Server(uvicorn.Config(app_, host="127.0.0.1", port=port, log_level="warning"))
+    th = threading.Thread(target=srv.run, daemon=True)
+    th.start()
+    for _ in range(100):
+        if srv.started:
+            break
+        time.sleep(0.05)
+    try:
+        monkeypatch.setenv("PAR_RESEARCHER_MCP", f"http://127.0.0.1:{port}/researcher")
+        out = anyio.run(research.ask, "Pick faces run empty during waves")
+        assert out["source"].endswith("/researcher/mcp") and "Replenishment" in out["answer"]
+    finally:
+        srv.should_exit = True
+        th.join(5)
+    with pytest.raises(research.ResearchError, match="Couldn't reach"):
+        anyio.run(research.ask, "x", f"http://127.0.0.1:{port}/researcher")
