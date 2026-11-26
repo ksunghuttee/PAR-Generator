@@ -206,3 +206,34 @@ async def ask(question: str, server=None) -> dict:
         raise ResearchError(f"Couldn't start or reach the researcher ({e.__class__.__name__}). Check PAR_RESEARCHER_MCP.") from e
     except Exception as e:  # noqa: BLE001 - MCP/transport errors come in many types
         raise ResearchError(f"The researcher returned an error: {e}") from e
+
+
+async def list_tools(target: str | None = None) -> list[dict]:
+    """The researcher's tools with their arguments: [{"name", "description", "arguments"}]."""
+    target = target or _spec()
+    last = None
+    for url in _url_candidates(target):
+        try:
+            async with _http_session(url) as session:
+                tools = (await session.list_tools()).tools
+            return [{"name": t.name, "description": (t.description or "").strip(), "url": url,
+                     "arguments": (getattr(t, "input_schema", None) or getattr(t, "inputSchema", None) or {}).get("properties", {})}
+                    for t in tools]
+        except Exception as e:  # noqa: BLE001
+            last = (e, url)
+            if _explain(e, url).startswith("Couldn't reach"):
+                break
+    raise ResearchError(_explain(*last))
+
+
+if __name__ == "__main__":  # python -m par_generator.research  -> list the researcher's tools
+    import sys
+
+    import anyio
+
+    try:
+        for t in anyio.run(list_tools, sys.argv[1] if len(sys.argv) > 1 else None):
+            args = ", ".join(f"{k} ({(v or {}).get('type', '?')})" for k, v in t["arguments"].items())
+            print(f"{t['name']}({args})\n    {t['description'][:300]}\n    at {t['url']}\n")
+    except ResearchError as e:
+        sys.exit(str(e))
